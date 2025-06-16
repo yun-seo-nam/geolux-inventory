@@ -1,0 +1,275 @@
+from flask import Blueprint, request, jsonify
+from datetime import datetime
+import sqlite3
+import os
+import glob
+from werkzeug.utils import secure_filename
+
+parts_bp = Blueprint('parts', __name__)
+
+# DB 파일 위치 (routes 폴더의 상위 디렉토리에 있다고 가정)
+DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'inventory.db')
+
+# 이미지 저장 폴더: 프로젝트 루트/static/images/parts
+IMAGE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'static', 'images', 'parts')
+
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg'}
+
+os.makedirs(IMAGE_DIR, exist_ok=True)
+
+
+def allowed_file(filename):
+    """
+    업로드된 파일 확장자가 허용 목록에 있는지 검사
+    """
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@parts_bp.route('/api/parts', methods=['POST'])
+def add_part():
+    data = request.get_json()
+
+    if not data.get('part_name') or not data.get('category_large'):
+        return jsonify({'error': 'part_name과 category_large는 필수입니다.'}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            INSERT INTO parts (
+                part_name, category_large, quantity, ordered_quantity, price,
+                manufacturer, package, description, last_modified_user,
+                create_date, update_date
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            data.get('part_name'),
+            data.get('category_large'),
+            data.get('quantity') or 0,
+            data.get('ordered_quantity') or 0,
+            data.get('price') or 0,
+            data.get('manufacturer'),
+            data.get('package'),
+            data.get('description'),
+            data.get('last_modified_user') or "Unknown",
+            datetime.now(),
+            datetime.now()
+        ))
+
+        conn.commit()
+        conn.close()
+        return jsonify({'message': '부품이 성공적으로 추가되었습니다.'}), 201
+
+    except sqlite3.IntegrityError:
+        return jsonify({'error': '이미 존재하는 부품 이름입니다.'}), 409
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/parts', methods=['GET'])
+def get_parts():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM parts ORDER BY update_date DESC")
+        rows = cursor.fetchall()
+
+        parts = []
+        for row in rows:
+            part_dict = dict(row)
+
+            # image_url 필드 추가
+            if part_dict.get('image_filename'):
+                part_dict['image_url'] = f"/static/images/parts/{part_dict['image_filename']}"
+            else:
+                part_dict['image_url'] = None
+
+            parts.append(part_dict)
+
+        conn.close()
+        return jsonify(parts)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/categories/large', methods=['GET'])
+def get_large_categories():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT DISTINCT category_large FROM parts WHERE category_large IS NOT NULL")
+        rows = cursor.fetchall()
+
+        categories = [row[0] for row in rows if row[0]]
+        return jsonify(categories)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/parts', methods=['DELETE'])
+def delete_parts():
+    data = request.get_json()
+    ids = data.get('ids', [])
+
+    if not ids:
+        return jsonify({'error': '삭제할 ID가 없습니다.'}), 400
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        
+        # 이미지 파일 삭제
+        for part_id in ids:
+            pattern = os.path.join(IMAGE_DIR, f"part_{part_id}.*")
+            for file in glob.glob(pattern):
+                os.remove(file)
+
+        cursor.executemany("DELETE FROM parts WHERE id = ?", [(i,) for i in ids])
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': f'{len(ids)}개 부품 삭제됨'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/parts/<int:part_id>', methods=['GET'])
+def get_part_detail(part_id):
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT * FROM parts WHERE id = ?", (part_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            return jsonify({'error': '해당 부품을 찾을 수 없습니다.'}), 404
+
+        part_dict = dict(row)
+
+        # 이미지 URL 생성 (image_filename이 있을 때만)
+        if part_dict.get('image_filename'):
+            part_dict['image_url'] = f"/static/images/parts/{part_dict['image_filename']}"
+        else:
+            part_dict['image_url'] = None
+
+        return jsonify(part_dict)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# -------------------------------------------------------
+# 8. 부품 정보 수정 (텍스트 필드만) 
+# -------------------------------------------------------
+@parts_bp.route('/api/parts/<int:part_id>', methods=['PUT'])
+def update_part(part_id):
+    data = request.get_json()
+
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+            UPDATE parts SET
+                part_name = ?,
+                category_large = ?,
+                quantity = ?,
+                ordered_quantity = ?,
+                price = ?,
+                manufacturer = ?,
+                package = ?,
+                description = ?,
+                update_date = ?,
+                last_modified_user = ?
+            WHERE id = ?
+        """, (
+            data.get('part_name'),
+            data.get('category_large'),
+            data.get('quantity') or 0,
+            data.get('ordered_quantity') or 0,
+            data.get('price') or 0,
+            data.get('manufacturer'),
+            data.get('package'),
+            data.get('description'),
+            datetime.now(),
+            data.get('last_modified_user') or "Unknown",
+            part_id
+        ))
+
+        conn.commit()
+        conn.close()
+
+        return jsonify({'message': '부품 정보가 수정되었습니다.'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/parts/<int:part_id>/upload-image', methods=['POST'])
+def upload_part_image(part_id):
+    """
+    클라이언트에서 multipart/form-data로 'image' 필드를 보내면,
+    part_{id}.확장자 형태로 저장하고 DB에 image_filename 컬럼으로 기록
+    """
+    if 'image' not in request.files:
+        return jsonify({'error': '업로드할 이미지 파일이 없습니다.'}), 400
+
+    file = request.files['image']
+    if file.filename == '':
+        return jsonify({'error': '파일명이 비어 있습니다.'}), 400
+
+    if not allowed_file(file.filename):
+        return jsonify({'error': '허용되지 않는 파일 확장자입니다.'}), 400
+
+    # 확장자 추출
+    ext = file.filename.rsplit('.', 1)[1].lower()
+    filename = f"part_{part_id}.{ext}"
+    save_path = os.path.join(IMAGE_DIR, filename)
+
+    try:
+        # 기존 이미지 삭제
+        existing_images = glob.glob(os.path.join(IMAGE_DIR, f"part_{part_id}.*"))
+        for img in existing_images:
+            os.remove(img)
+
+        file.save(save_path)
+
+        # DB에 파일명 기록
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+        cursor.execute("UPDATE parts SET image_filename = ? WHERE id = ?", (filename, part_id))
+        conn.commit()
+        conn.close()
+
+        image_url = f"/static/images/parts/{filename}"
+        return jsonify({'image_url': image_url}), 200
+
+    except Exception as e:
+        return jsonify({'error': f"이미지 저장 또는 DB 업데이트 실패: {str(e)}"}), 500
+    
+@parts_bp.route('/api/part-orders/<int:order_id>/toggle', methods=['POST'])
+def toggle_fulfilled(order_id):
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute("SELECT part_id, quantity_ordered, fulfilled FROM part_orders WHERE id = ?", (order_id,))
+    row = cursor.fetchone()
+    if not row:
+        return jsonify({'error': '주문을 찾을 수 없음'}), 404
+
+    part_id, qty, fulfilled = row
+
+    if fulfilled == 0:
+        # 완료 처리 → 수량 추가
+        cursor.execute("UPDATE parts SET quantity = quantity + ? WHERE id = ?", (qty, part_id))
+        cursor.execute("UPDATE part_orders SET fulfilled = 1 WHERE id = ?", (order_id,))
+    else:
+        return jsonify({'message': '이미 완료된 주문입니다.'}), 400
+
+    conn.commit()
+    conn.close()
+    return jsonify({'message': '배송 상태 변경됨'})
+
