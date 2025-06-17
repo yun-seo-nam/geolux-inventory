@@ -98,6 +98,9 @@ app.register_blueprint(parts_bp)
 from routes.assemblies import assemblies_bp
 app.register_blueprint(assemblies_bp)
 
+from routes.parts import order_bp 
+app.register_blueprint(order_bp)
+
 DATABASE = os.path.join(os.getcwd(), 'inventory.db')
 
 def get_db():
