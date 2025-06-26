@@ -264,7 +264,7 @@ def get_assembly_detail(assembly_id):
 
         parts = db.execute("""
             SELECT 
-                ap.reference, ap.quantity_per, p.part_name, p.quantity, p.id as part_id
+                ap.reference, ap.quantity_per, ap.allocated_quantity, p.part_name, p.quantity, p.id as part_id
             FROM assembly_parts ap
             JOIN parts p ON ap.part_id = p.id
             WHERE ap.assembly_id = ?
@@ -395,3 +395,33 @@ def add_bom_item(assembly_id):
         db.rollback()
         return jsonify({'error': f'추가 실패: {str(e)}'}), 500
 
+@assemblies_bp.route("/api/assemblies/low_stock", methods=["GET"])
+def get_low_stock_assemblies():
+    try:
+        db = get_db()
+        rows = db.execute("""
+            SELECT a.id, a.assembly_name, a.quantity_to_build,
+                   SUM(ap.quantity_per) AS total_needed,
+                   SUM(ap.allocated_quantity) AS total_allocated
+            FROM assemblies a
+            JOIN assembly_parts ap ON a.id = ap.assembly_id
+            GROUP BY a.id
+            HAVING total_allocated < (a.quantity_to_build * total_needed)
+            ORDER BY (1.0 * total_allocated / NULLIF(a.quantity_to_build * total_needed, 0)) ASC
+        """).fetchall()
+
+        assemblies = []
+        for row in rows:
+            total_needed = row["quantity_to_build"] * row["total_needed"]
+            allocated = row["total_allocated"] or 0
+            percent = 0 if total_needed == 0 else (allocated / total_needed * 100)
+            assemblies.append({
+                "id": row["id"],
+                "assembly_name": row["assembly_name"],
+                "allocation_percent": percent
+            })
+
+        return jsonify(assemblies)
+    except Exception as e:
+        current_app.logger.error(f"Error fetching low stock assemblies: {e}")
+        return jsonify({'error': str(e)}), 500

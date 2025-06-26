@@ -29,7 +29,7 @@ def allowed_file(filename):
 @parts_bp.route('/api/parts', methods=['POST'])
 def add_part():
     data = request.get_json()
-    print("Received data:", data)  # 디버깅용
+    print("Received data:", data) 
 
     if not data.get('part_name') or not data.get('category_large'):
         return jsonify({'error': 'part_name과 category_large는 필수입니다.'}), 400
@@ -103,6 +103,36 @@ def get_large_categories():
         cursor = conn.cursor()
 
         cursor.execute("SELECT DISTINCT category_large FROM parts WHERE category_large IS NOT NULL")
+        rows = cursor.fetchall()
+
+        categories = [row[0] for row in rows if row[0]]
+        return jsonify(categories)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@parts_bp.route('/api/categories/medium', methods=['GET'])
+def get_medium_categories():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT DISTINCT category_medium FROM parts WHERE category_medium IS NOT NULL")
+        rows = cursor.fetchall()
+
+        categories = [row[0] for row in rows if row[0]]
+        return jsonify(categories)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
+@parts_bp.route('/api/categories/small', methods=['GET'])
+def get_small_categories():
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        cursor = conn.cursor()
+
+        cursor.execute("SELECT DISTINCT category_small FROM parts WHERE category_small IS NOT NULL")
         rows = cursor.fetchall()
 
         categories = [row[0] for row in rows if row[0]]
@@ -315,3 +345,149 @@ def create_or_merge_order():
     conn.commit()
     return jsonify({"success": True})
 
+@order_bp.route('/api/part_orders/<int:order_id>/fulfill', methods=['PATCH'])
+def fulfill_part_order(order_id):
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+
+        # 주문 수량 및 부품 ID 조회
+        cur.execute("""
+            SELECT part_id, quantity_ordered
+            FROM part_orders
+            WHERE id = ?
+        """, (order_id,))
+        row = cur.fetchone()
+
+        if not row:
+            return jsonify({'error': '해당 주문을 찾을 수 없습니다.'}), 404
+
+        part_id = row['part_id']
+        qty = row['quantity_ordered']
+
+        # 부품 재고 증가
+        cur.execute("""
+            UPDATE parts
+            SET quantity = quantity + ?
+            WHERE id = ?
+        """, (qty, part_id))
+
+        # 주문 삭제 (원한다면)
+        cur.execute("DELETE FROM part_orders WHERE id = ?", (order_id,))
+
+        conn.commit()
+        return jsonify({'message': '배송 완료 처리 및 재고 반영 완료'}), 200
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@parts_bp.route('/api/assemblies/<int:assembly_id>/bom/<int:part_id>/allocate', methods=['PUT'])
+def allocate_part(assembly_id, part_id):
+    data = request.get_json()
+    amount = data.get('amount')
+
+    if not isinstance(amount, int) or amount <= 0:
+        return jsonify({'error': '양수인 할당 수량을 입력해야 합니다.'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    # 부품 수량, 현재 할당량, 필요 수량 확인
+    cur.execute("""
+        SELECT p.quantity, ap.allocated_quantity, ap.quantity_per, a.quantity_to_build
+        FROM parts p
+        JOIN assembly_parts ap ON p.id = ap.part_id
+        JOIN assemblies a ON ap.assembly_id = a.id
+        WHERE ap.assembly_id = ? AND ap.part_id = ?
+    """, (assembly_id, part_id))
+    row = cur.fetchone()
+
+    if not row:
+        return jsonify({'error': '해당 부품이 어셈블리에 존재하지 않습니다.'}), 404
+
+    part_qty = row['quantity']
+    allocated = row['allocated_quantity'] or 0
+    quantity_per = row['quantity_per']
+    to_build = row['quantity_to_build']
+    required_total = quantity_per * to_build
+
+    if amount > part_qty:
+        return jsonify({'error': '재고보다 많은 양을 할당할 수 없습니다.'}), 400
+    if allocated + amount > required_total:
+        return jsonify({'error': '필요 수량보다 많은 할당은 불가능합니다.'}), 400
+
+    # 할당 처리
+    cur.execute("""
+        UPDATE assembly_parts
+        SET allocated_quantity = allocated_quantity + ?
+        WHERE assembly_id = ? AND part_id = ?
+    """, (amount, assembly_id, part_id))
+
+    cur.execute("""
+        UPDATE parts
+        SET quantity = quantity - ?
+        WHERE id = ?
+    """, (amount, part_id))
+
+    conn.commit()
+    return jsonify({'success': True}), 200
+
+
+@parts_bp.route('/api/assemblies/<int:assembly_id>/bom/<int:part_id>/deallocate', methods=['PUT'])
+def deallocate_part(assembly_id, part_id):
+    data = request.get_json()
+    amount = data.get('amount')
+
+    if not isinstance(amount, int) or amount <= 0:
+        return jsonify({'error': '양수인 취소 수량을 입력해야 합니다.'}), 400
+
+    conn = get_db()
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT allocated_quantity
+        FROM assembly_parts
+        WHERE assembly_id = ? AND part_id = ?
+    """, (assembly_id, part_id))
+    row = cur.fetchone()
+
+    if not row:
+        return jsonify({'error': '해당 부품이 어셈블리에 존재하지 않습니다.'}), 404
+
+    allocated = row['allocated_quantity'] or 0
+
+    if amount > allocated:
+        return jsonify({'error': '할당된 수량보다 많이 취소할 수 없습니다.'}), 400
+
+    # 할당 취소 처리
+    cur.execute("""
+        UPDATE assembly_parts
+        SET allocated_quantity = allocated_quantity - ?
+        WHERE assembly_id = ? AND part_id = ?
+    """, (amount, assembly_id, part_id))
+
+    cur.execute("""
+        UPDATE parts
+        SET quantity = quantity + ?
+        WHERE id = ?
+    """, (amount, part_id))
+
+    conn.commit()
+    return jsonify({'success': True}), 200
+
+@parts_bp.route("/api/part_orders/recent", methods=["GET"])
+def get_recent_part_orders():
+    try:
+        db = get_db()
+        rows = db.execute("""
+            SELECT po.id, po.order_date, po.quantity_ordered,
+                   p.part_name
+            FROM part_orders po
+            JOIN parts p ON po.part_id = p.id
+            ORDER BY po.order_date DESC
+            LIMIT 10
+        """).fetchall()
+        return jsonify([dict(row) for row in rows])
+    except Exception as e:
+        current_app.logger.error(f"Error fetching part orders: {e}")
+        return jsonify({'error': str(e)}), 500

@@ -49,6 +49,7 @@ CREATE TABLE assembly_parts (
     quantity_per INTEGER,
     reference TEXT,
     update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    allocated_quantity INTEGER DEFAULT 0,
     PRIMARY KEY (assembly_id, part_id),
     FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
     FOREIGN KEY (part_id) REFERENCES parts(id)
