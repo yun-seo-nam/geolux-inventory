@@ -5,6 +5,7 @@ import pandas as pd
 from werkzeug.utils import secure_filename
 import glob
 from collections import defaultdict
+import traceback
 
 assemblies_bp = Blueprint('assemblies', __name__)
 
@@ -21,6 +22,31 @@ def get_db():
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@assemblies_bp.route("/api/assemblies/create", methods=["POST"])
+def create_assembly():
+    data = request.get_json()
+    name = data.get("assembly_name", "").strip()
+    username = data.get("username", "Unknown")
+
+    if not name:
+        return jsonify({"error": "어셈블리 이름이 필요합니다"}), 400
+
+    db = get_db()
+    cur = db.cursor()
+
+    cur.execute("SELECT id FROM assemblies WHERE assembly_name = ?", (name,))
+    if cur.fetchone():
+        return jsonify({"error": "이미 존재하는 어셈블리 이름입니다"}), 400
+
+    cur.execute("""
+        INSERT INTO assemblies (assembly_name, last_modified_user, create_date, update_date)
+        VALUES (?, ?, datetime('now'), datetime('now'))
+    """, (name, username))
+
+    db.commit()
+
+    return jsonify({"message": f"{name} 어셈블리 생성 완료", "assembly_id": cur.lastrowid})
 
 @assemblies_bp.route("/api/assemblies", methods=["GET"])
 def get_assemblies():
@@ -55,9 +81,13 @@ def delete_assemblies():
         cursor = conn.cursor()
 
         for assembly_id in ids:
+            # 이미지 삭제
             pattern = os.path.join(ASSEMBLY_IMAGE_DIR, f"assembly_{assembly_id}.*")
             for file in glob.glob(pattern):
                 os.remove(file)
+
+            # assembly_parts에서 해당 assembly_id 삭제
+            cursor.execute("DELETE FROM assembly_parts WHERE assembly_id = ?", (assembly_id,))
 
         cursor.executemany("DELETE FROM assemblies WHERE id = ?", [(i,) for i in ids])
         conn.commit()
@@ -248,13 +278,31 @@ def get_assembly_detail(assembly_id):
     except Exception as e:
         current_app.logger.error(f"Error fetching assembly detail: {e}")
         return jsonify({'error': str(e)}), 500
+    
+@assemblies_bp.route('/api/assemblies/<int:assembly_id>/edit', methods=['PUT'])
+def edit_assembly_basic_info(assembly_id):
+    data = request.get_json()
+    assembly_name = data.get('assembly_name')
+    quantity_to_build = data.get('quantity_to_build')
+
+    db = get_db()
+    try:
+        if assembly_name is not None:
+            db.execute("UPDATE assemblies SET assembly_name = ?, update_date = CURRENT_TIMESTAMP WHERE id = ?", (assembly_name, assembly_id))
+        if quantity_to_build is not None:
+            db.execute("UPDATE assemblies SET quantity_to_build = ?, update_date = CURRENT_TIMESTAMP WHERE id = ?", (quantity_to_build, assembly_id))
+        db.commit()
+        return jsonify({'message': '수정 완료'}), 200
+    except Exception as e:
+        db.rollback()
+        return jsonify({'error': str(e)}), 500
 
 @assemblies_bp.route('/api/assemblies/<int:assembly_id>/bom/<int:part_id>', methods=['PUT'])
 def update_bom_item(assembly_id, part_id):
     data = request.get_json()
     reference = data.get('reference')
     quantity_per = data.get('quantity_per')
-    part_name = data.get('part_name')  # ← 여기 추가
+    part_name = data.get('part_name')
 
     if reference is None or quantity_per is None or part_name is None:
         return jsonify({'error': '필수 항목 누락'}), 400
@@ -285,6 +333,7 @@ def update_bom_item(assembly_id, part_id):
 
     except Exception as e:
         db.rollback()
+        print("[BOM 수정 오류]", traceback.format_exc())  # 로그 출력
         return jsonify({'error': f"서버 오류: {str(e)}"}), 500
     
 @assemblies_bp.route('/api/assemblies/<int:assembly_id>/bom/<int:part_id>', methods=['DELETE'])

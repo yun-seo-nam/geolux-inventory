@@ -28,7 +28,6 @@ CREATE TABLE part_orders (
   part_id INTEGER NOT NULL,
   order_date TEXT NOT NULL,
   quantity_ordered INTEGER NOT NULL,
-  fulfilled INTEGER DEFAULT 0,
   FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
 );
 
@@ -45,12 +44,13 @@ CREATE TABLE assemblies (
 );
 
 CREATE TABLE assembly_parts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  assembly_id INTEGER NOT NULL,
-  part_id INTEGER NOT NULL,
-  quantity_per INTEGER NOT NULL,
-  reference TEXT,
-  update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
-  FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
+    assembly_id INTEGER,
+    part_id INTEGER,
+    quantity_per INTEGER,
+    reference TEXT,
+    update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (assembly_id, part_id),
+    FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE,
+    FOREIGN KEY (part_id) REFERENCES parts(id)
 );
+

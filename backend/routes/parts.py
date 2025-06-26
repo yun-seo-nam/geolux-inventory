@@ -178,28 +178,40 @@ def update_part(part_id):
             UPDATE parts SET
                 part_name = ?,
                 category_large = ?,
+                category_medium = ?,
+                category_small = ?,
                 quantity = ?,
                 ordered_quantity = ?,
                 price = ?,
                 manufacturer = ?,
                 value = ?,
                 package = ?,
+                mounting_type = ?,
+                location = ?,
+                memo = ?,
                 description = ?,
                 update_date = ?,
-                last_modified_user = ?
+                last_modified_user = ?,
+                purchase_url = ?
             WHERE id = ?
         """, (
             data.get('part_name'),
             data.get('category_large'),
+            data.get('category_medium'),
+            data.get('category_small'),
             data.get('quantity') or 0,
             data.get('ordered_quantity') or 0,
             data.get('price') or 0,
             data.get('manufacturer'),
             data.get('value'),
             data.get('package'),
+            data.get('mounting_type'),
+            data.get('location'),
+            data.get('memo'),
             data.get('description'),
             datetime.now(),
             data.get('last_modified_user') or "Unknown",
+            data.get('purchase_url'),
             part_id
         ))
 
@@ -261,7 +273,7 @@ def get_orders_by_part(part_id):
         cur = conn.cursor()
 
         cur.execute("""
-            SELECT id, part_id, order_date, quantity_ordered, fulfilled
+            SELECT id, part_id, order_date, quantity_ordered
             FROM part_orders
             WHERE part_id = ?
             ORDER BY order_date DESC
@@ -277,6 +289,7 @@ def get_orders_by_part(part_id):
 @order_bp.route('/api/part_orders', methods=['POST'])
 def create_or_merge_order():
     data = request.get_json()
+    print("[POST] /api/part_orders - 받은 데이터:", data)
     part_id = data['part_id']
     order_date = data['order_date']
     qty = data['quantity_ordered']
@@ -295,8 +308,8 @@ def create_or_merge_order():
         cur.execute("UPDATE part_orders SET quantity_ordered = ? WHERE id = ?", (new_qty, existing['id']))
     else:
         cur.execute("""
-            INSERT INTO part_orders (part_id, order_date, quantity_ordered, fulfilled)
-            VALUES (?, ?, ?, 0)
+            INSERT INTO part_orders (part_id, order_date, quantity_ordered)
+            VALUES (?, ?, ?)
         """, (part_id, order_date, qty))
 
     conn.commit()
