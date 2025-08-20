@@ -1,0 +1,517 @@
+/* =========================
+   THEME TOKENS
+========================= */
+:root {
+  --brand-grad-a: #1d2b64;
+  --brand-grad-b: #f8cdda;
+  --grad-split: 65%;
+  --grad-softness: 10%;
+
+  /* 배경 / 표면 / 텍스트 (Light) */
+  --bg-page: #f4f6fb;
+  --bg-card: #ffffff;
+  --text-strong: #1f2a40;
+  --text-weak: #6b7280;
+
+  /* 포인트 */
+  --accent-a: #ff9a00;
+  --accent-b: #ff6a88;
+
+  /* 레이아웃 치수 */
+  --header-height: 56px;
+  --sidebar-collapsed: 72px;
+  --sidebar-expanded: 220px;
+
+  /* 공용 */
+  --radius-lg: 12px;
+  --radius-md: 10px;
+  --shadow-sm: 0 2px 10px rgba(16, 24, 40, .08);
+  --shadow-md: 0 8px 24px rgba(16, 24, 40, .12);
+  --chrome-bg-size: 100vw 100vh;
+}
+
+/* Dark mode overrides (Bootstrap 5.3와 호환) */
+[data-bs-theme="dark"] {
+  --brand-grad-a: #0b193f;
+  --brand-grad-b: #1f3c68;
+
+  --bg-page: #0f172a;
+  --bg-card: #111827;
+  --text-strong: #e5e7eb;
+  --text-weak: #94a3b8;
+
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, .45);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, .55);
+}
+
+/* Custom Button Styles */
+
+/* Light Mode */
+.btn-custom {
+  /* Primary states */
+  background: var(--brand-grad-a);
+  color: #fff;
+  border-color: var(--brand-grad-a);
+
+  /* Hover state */
+  --bs-btn-hover-bg: linear-gradient(135deg, var(--accent-a), var(--accent-b));
+  --bs-btn-hover-border-color: transparent;
+
+  /* Active state */
+  --bs-btn-active-bg: var(--accent-b);
+  --bs-btn-active-border-color: transparent;
+
+  /* Other */
+  font-weight: 600;
+  border-radius: 8px;
+  transition: all 0.2s ease-in-out;
+}
+
+/* Dark Mode Overrides */
+[data-bs-theme="dark"] .btn-custom {
+  /* Primary states */
+  background: var(--brand-grad-a);
+  color: #fff;
+  border-color: var(--brand-grad-a);
+
+  /* Hover state */
+  --bs-btn-hover-bg: #2b395d;
+  --bs-btn-hover-border-color: #2b395d;
+
+  /* Active state */
+  --bs-btn-active-bg: #1f3c68;
+  --bs-btn-active-border-color: #1f3c68;
+}
+
+/* =========================
+   LOGIN (기존 유지, 배경만 변수화)
+========================= */
+.login-wrapper {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, var(--brand-grad-a), var(--brand-grad-b));
+  overflow: hidden;
+  z-index: 9999;
+}
+
+.login-card {
+  width: 360px;
+  padding: 40px 30px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--shadow-md);
+  text-align: center;
+  animation: fadeInUp .6s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px)
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0)
+  }
+}
+
+.login-title {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #333
+}
+
+.login-subtitle {
+  font-size: 14px;
+  margin-bottom: 24px;
+  color: #777
+}
+
+.form-group {
+  position: relative;
+  margin-bottom: 24px
+}
+
+.form-group input {
+  width: 100%;
+  padding: 14px 12px;
+  font-size: 16px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 8px;
+  outline: none;
+  transition: .2s;
+}
+
+.form-group input:focus {
+  border-color: var(--brand-grad-a);
+  box-shadow: 0 0 0 3px rgba(29, 43, 100, .12)
+}
+
+.floating-label label {
+  position: absolute;
+  left: 12px;
+  top: 14px;
+  color: #9ca3af;
+  font-size: 16px;
+  transition: .2s;
+  pointer-events: none;
+}
+
+.floating-label input:focus~label,
+.floating-label input:not(:placeholder-shown)~label {
+  top: -8px;
+  left: 10px;
+  font-size: 12px;
+  background: #fff;
+  color: var(--brand-grad-a);
+  padding: 0 4px;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 14px;
+  border: 0;
+  border-radius: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  cursor: pointer;
+  transition: transform .15s, box-shadow .2s;
+}
+
+.login-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-sm)
+}
+
+.login-btn:disabled {
+  opacity: .6;
+  cursor: not-allowed
+}
+
+/* =========================
+   GLOBAL
+========================= */
+* {
+  box-sizing: border-box
+}
+
+html,
+body {
+  height: 100%
+}
+
+body {
+  margin: 0;
+  background: var(--bg-page);
+  color: var(--text-strong);
+  font-family: "Poppins", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+/* 부드러운 전환 */
+@media (prefers-reduced-motion: no-preference) {
+
+  body,
+  .layout-header,
+  .layout-sidebar,
+  .layout-main,
+  .layout-footer,
+  .main-content-wrapper {
+    transition: background-color .25s ease, color .25s ease, border-color .25s ease;
+  }
+}
+
+/* =========================
+   LAYOUT CHROME (Header + Sidebar 연결)
+========================= */
+.layout-header,
+.layout-sidebar {
+  background: linear-gradient(135deg,
+      var(--brand-grad-a) 0%,
+      var(--brand-grad-a) calc(var(--grad-split) - var(--grad-softness)),
+      var(--brand-grad-b) calc(var(--grad-split) + var(--grad-softness)),
+      var(--brand-grad-b) 100%) fixed;
+  background-size: var(--chrome-bg-size);
+  background-position: left top;
+}
+
+/* Header */
+.layout-header {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  height: var(--header-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: .6rem 1.5rem;
+  border-bottom: none;
+  box-shadow: none;
+  color: #fff;
+}
+
+.brand-link {
+  text-decoration: none
+}
+
+.brand-title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: .2px;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .22);
+}
+
+/* Header tools */
+.header-tools {
+  display: flex;
+  align-items: center;
+  gap: .5rem
+}
+
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 32px;
+  padding: 0;
+  background: rgba(255, 255, 255, .18) !important;
+  border: 1px solid rgba(255, 255, 255, .32) !important;
+  color: #fff !important;
+  border-radius: 10px;
+  backdrop-filter: blur(2px);
+  transition: background .2s, transform .15s;
+}
+
+.theme-toggle-btn:hover {
+  background: rgba(255, 255, 255, .26) !important;
+}
+
+.theme-toggle-btn:active {
+  transform: translateY(1px);
+}
+
+/* Sidebar (헤더와 연결) */
+.layout-sidebar {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 900;
+  width: var(--sidebar-collapsed);
+  height: 100vh;
+  /* 헤더와 완전 연결되게 */
+  padding-top: var(--header-height);
+  /* 내부 콘텐츠만 헤더만큼 내려감 */
+  border-right: none;
+  overflow: hidden;
+  transition: width .28s ease;
+}
+
+.layout-sidebar:hover {
+  width: var(--sidebar-expanded);
+}
+
+.layout-main {
+  margin-left: var(--sidebar-collapsed);
+  transition: margin-left .28s ease;
+  min-height: calc(100vh - var(--header-height));
+  background: var(--bg-page);
+  color: var(--text-strong);
+  overflow: auto;
+  background-color: var(--brand-grad-a);
+  display: flex;
+  flex-direction: column;
+
+}
+
+.layout-sidebar:hover~.layout-main {
+  margin-left: var(--sidebar-expanded);
+}
+
+.layout-footer {
+  margin-left: var(--sidebar-collapsed);
+  transition: margin-left .28s ease;
+  padding: .9rem 1rem;
+  text-align: center;
+  font-size: 12px;
+  background: rgba(255, 255, 255, .18) !important;
+  border-top: 1px solid rgba(0, 0, 0, .08);
+  box-shadow: var(--shadow-sm);
+}
+
+.layout-sidebar:hover~.layout-footer {
+  margin-left: var(--sidebar-expanded);
+}
+
+/* =========================
+   CONTENT WRAPPER
+========================= */
+.main-content-wrapper {
+  background: var(--bg-card);
+  border-top-left-radius: var(--radius-lg);
+  padding: 1.25rem;
+  box-shadow: var(--shadow-sm);
+  min-height: 500px;
+  flex: 1;
+  /* 남은 영역 채우기 */
+  width: 100%;
+  /* 가로 꽉 채우기 */
+  box-sizing: border-box;
+}
+
+/* =========================
+   SIDEBAR LINKS (React Icons)
+========================= */
+.sidebar-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: .8rem 1rem;
+  border-radius: 10px;
+  color: #fff;
+  text-decoration: none;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: transform .25s, background .2s, border-color .2s;
+}
+
+.sidebar-icon {
+  display: inline-flex;
+  font-size: 18px
+}
+
+.sidebar-label {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .25s ease, visibility .25s ease;
+}
+
+.layout-sidebar:hover .sidebar-label {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* hover: 글래스 */
+.sidebar-link:hover {
+  border-color: rgba(255, 255, 255, .28);
+  transform: translateX(4px);
+  color: #fff;
+}
+
+.sidebar-link.active {
+  border-color: rgba(255, 255, 255, .36);
+  font-weight: 800;
+  color: #fff;
+}
+
+.sidebar-link.active::before {
+  content: "";
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 4px;
+  height: 70%;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--accent-a), var(--accent-b));
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, .18) inset;
+}
+
+/* 키보드 포커스 */
+.sidebar-link:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, .25) inset;
+}
+
+/* =========================
+   DROPDOWN (Header inside)
+========================= */
+#custom-dropdown,
+.custom-dropdown-toggle {
+  background: transparent !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  transition: background .2s ease;
+}
+
+#custom-dropdown:hover,
+.custom-dropdown-toggle:hover {
+  background: rgba(255, 255, 255, .22) !important;
+}
+
+.dropdown-menu {
+  background: var(--bg-card);
+  border: 1px solid rgba(0, 0, 0, .08);
+  border-radius: 10px;
+  padding: 6px 0;
+}
+
+.dropdown-menu .dropdown-item {
+  color: var(--text-strong)
+}
+
+[data-bs-theme="dark"] .dropdown-menu {
+  background: #0b1220;
+  border-color: #162036;
+}
+
+[data-bs-theme="dark"] .dropdown-menu .dropdown-item {
+  color: #e5e7eb
+}
+
+/* =========================
+   TABLES (선택 사용)
+========================= */
+.table-custom {
+  width: 100%;
+  background: #fff;
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+
+.table-custom th {
+  background: #f5f6f7;
+  color: #374151;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: .75rem 1rem;
+}
+
+.table-custom td {
+  padding: .75rem 1rem;
+  vertical-align: middle;
+  border-top: 1px solid #eef2f7;
+}
+
+/* =========================
+   SCROLLBAR (옵션)
+========================= */
+.layout-main::-webkit-scrollbar,
+.layout-sidebar::-webkit-scrollbar {
+  width: 10px
+}
+
+.layout-main::-webkit-scrollbar-thumb,
+.layout-sidebar::-webkit-scrollbar-thumb {
+  background: #cfd6e3;
+  border-radius: 8px;
+}
+
+[data-bs-theme="dark"] .layout-main::-webkit-scrollbar-thumb,
+[data-bs-theme="dark"] .layout-sidebar::-webkit-scrollbar-thumb {
+  background: #425169;
+}
