@@ -1,63 +1,169 @@
-# app.py
-
-from flask import Flask, g, send_from_directory
+from flask import Flask, g, send_from_directory, abort, request, jsonify
+import ipaddress
 from flask_socketio import SocketIO
 from flask_cors import CORS
+from flask_bcrypt import Bcrypt
 import sqlite3
 import os
-import pandas as pd
-from datetime import datetime
 import traceback
+from werkzeug.security import check_password_hash, generate_password_hash
+from flask_jwt_extended import create_access_token, JWTManager, set_access_cookies, unset_jwt_cookies, jwt_required, get_jwt_identity
 
-# -----------------------------
-# 기본 설정
-# -----------------------------
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATABASE = os.path.join(BASE_DIR, 'inventory.db')
+
+def get_db():
+    if 'db' not in g:
+        g.db = sqlite3.connect(DATABASE)
+        g.db.row_factory = sqlite3.Row
+    return g.db
+
 app = Flask(__name__)
-CORS(app)
+app.secret_key = 'your_secret_key_here'
+CORS(app,
+     supports_credentials=True,
+     origins=[
+         "http://localhost:3000",
+         "http://192.168.0.3:3000"
+     ])
 socketio = SocketIO(app, cors_allowed_origins="*")
+bcrypt = Bcrypt(app)
 
+# JWT 설정
+app.config["JWT_SECRET_KEY"] = "super-secret"
+app.config["JWT_TOKEN_LOCATION"] = ["cookies"]
+app.config["JWT_COOKIE_SECURE"] = False
+app.config["JWT_COOKIE_CSRF_PROTECT"] = False # 개발 편의상 False
+jwt = JWTManager(app)
+
+# ---------------------------
+# 사내망 IP 제한
+# ---------------------------
+@app.before_request
+def restrict_to_company_wifi():
+    allowed_network = ipaddress.IPv4Network("192.168.0.0/24")
+    client_ip_raw = request.headers.get("X-Forwarded-For", request.remote_addr)
+    client_ip = ipaddress.IPv4Address(client_ip_raw.split(',')[0].strip())
+    if client_ip not in allowed_network and client_ip != ipaddress.IPv4Address("127.0.0.1"):
+        print(f"차단된 외부 IP 접근: {client_ip}")
+        abort(403)
+
+# ---------------------------
+# 회원가입
+# ---------------------------
+@app.route('/register', methods=['POST'])
+def register():
+    data = request.get_json()
+    db = get_db()
+    cur = db.execute("SELECT id FROM users WHERE username = ?", (data['username'],))
+    if cur.fetchone():
+        return jsonify({'msg': 'Username already exists'}), 400
+    hashed_pw = generate_password_hash(data['password'])
+    db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (data['username'], hashed_pw))
+    db.commit()
+    return jsonify({'msg': 'User created successfully'}), 201
+
+# ---------------------------
+# 로그인
+# ---------------------------
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    db = get_db()
+    cur = db.execute("SELECT * FROM users WHERE username = ?", (data['username'],))
+    row = cur.fetchone()
+
+    if row and check_password_hash(row['password_hash'], data['password']):
+        access_token = create_access_token(identity=row['id'])
+        response = jsonify({'msg': 'Login successful', 'user': {'id': row['id'], 'name': row['username']}})
+        set_access_cookies(response, access_token)
+        return response, 200
+    
+    return jsonify({'msg': '아이디 혹은 비밀번호가 일치하지 않습니다'}), 401
+
+# ---------------------------
+# 로그아웃
+# ---------------------------
+@app.route('/logout', methods=['POST'])
+@jwt_required()
+def logout():
+    response = jsonify({'msg': '로그아웃 되었습니다'})
+    unset_jwt_cookies(response)
+    return response, 200
+
+# ---------------------------
+# 로그인 상태 확인
+# ---------------------------
+@app.route('/profile', methods=['GET'])
+@jwt_required()
+def profile():
+    current_user_id = get_jwt_identity()
+    db = get_db()
+    cur = db.execute("SELECT id, username FROM users WHERE id = ?", (current_user_id,))
+    row = cur.fetchone()
+    if row:
+        return jsonify({'user': {'id': row['id'], 'name': row['username']}})
+    return jsonify({'msg': '사용자를 찾을 수 없습니다'}), 404
+
+# ---------------------------
+# 사용자 관련
+# ---------------------------
+
+# 사용자 목록 불러오기
+@app.route('/users', methods=['GET'])
+@jwt_required()
+def get_users():
+    db = get_db()
+    cur = db.execute("SELECT id, username FROM users")
+    rows = cur.fetchall()
+    users = [{'value': row['id'], 'label': row['username']} for row in rows]
+    return jsonify(users), 200
+
+# 사용자 추가
+@app.route('/users', methods=['POST'])
+@jwt_required()
+def add_user():
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({'msg': 'Username and password are required'}), 400
+
+    db = get_db()
+    cur = db.execute("SELECT id FROM users WHERE username = ?", (username,))
+    if cur.fetchone():
+        return jsonify({'msg': 'Username already exists'}), 400
+
+    hashed_pw = generate_password_hash(password)
+    db.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", (username, hashed_pw))
+    db.commit()
+    return jsonify({'msg': 'User added successfully'}), 201
+
+# 사용자 삭제
+@app.route('/users/<int:user_id>', methods=['DELETE'])
+@jwt_required()
+def delete_user(user_id):
+    db = get_db()
+    db.execute("DELETE FROM users WHERE id = ?", (user_id,))
+    db.commit()
+    return jsonify({'msg': 'User deleted successfully'}), 200
+    
 @app.route("/static/images/parts/<path:filename>")
 def custom_serve_part_image(filename):
-    """
-    React 프록시가 /static/images/parts/<filename> 요청을 보내면
-    기본 static 서빙 대신 여기를 타게 됩니다.
-    자세한 로그를 찍으면서, 파일 존재 여부 및 권한 체크 후 서빙해 봅시다.
-    """
     try:
-        # 1) 프로젝트 루트(즉, app.py가 있는 폴더) 경로를 기준으로 static 폴더 위치 계산
         base_dir = os.path.dirname(os.path.abspath(__file__))
         static_parts_dir = os.path.join(base_dir, "static", "images", "parts")
-
-        # 2) 파일 풀 경로
         full_path = os.path.join(static_parts_dir, filename)
 
-        # 3) 로깅: 요청 들어온 Filename과 풀 경로 출력
-        print(f"[Static_Debug] 요청된 파일명: '{filename}'")
-        print(f"[Static_Debug] 실제 풀 경로: '{full_path}'")
-
-        # 4) 파일 존재 여부 체크
         if not os.path.isfile(full_path):
-            print(f"[Static_Debug] 파일을 찾을 수 없습니다 (404): {full_path}")
             return "Not Found", 404
 
-        # 5) 파일 권한(읽기) 체크: 읽어볼 수 있는지 시도
-        try:
-            with open(full_path, "rb") as f:
-                f.read(1)  # 첫 바이트만 읽어보아서 예외 발생 여부 확인
-            print(f"[Static_Debug] 파일 열기 성공: {full_path}")
-        except Exception as open_err:
-            print(f"[Static_Debug] 파일 열기 중 예외 발생: {open_err}")
-            traceback.print_exc()  # 자세한 스택 트레이스 출력
-            return "Internal Server Error (파일 읽기 실패)", 500
-
-        # 6) 정상 서빙
         return send_from_directory(static_parts_dir, filename)
 
     except Exception as e:
-        # 7) 그 외 모든 예외를 잡아서 로그로 출력
-        print("[Static_Debug] 기타 예외 발생:")
-        traceback.print_exc()  # 전체 스택 트레이스
-        return "Internal Server Error (기타 예외)", 500
+        traceback.print_exc()
+        return "Internal Server Error", 500
     
 # ────────────────────────────────────────────────────
 
@@ -68,46 +174,24 @@ def custom_serve_assembly_image(filename):
         static_assemblies_dir = os.path.join(base_dir, "static", "images", "assemblies")
         full_path = os.path.join(static_assemblies_dir, filename)
 
-        print(f"[Assembly_Static] 요청된 파일명: '{filename}'")
-        print(f"[Assembly_Static] 실제 풀 경로: '{full_path}'")
-
         if not os.path.isfile(full_path):
-            print(f"[Assembly_Static] 파일 없음 (404): {full_path}")
             return "Not Found", 404
-
-        try:
-            with open(full_path, "rb") as f:
-                f.read(1)
-            print(f"[Assembly_Static] 파일 열기 성공: {full_path}")
-        except Exception as open_err:
-            print(f"[Assembly_Static] 파일 열기 실패: {open_err}")
-            traceback.print_exc()
-            return "Internal Server Error (파일 읽기 실패)", 500
 
         return send_from_directory(static_assemblies_dir, filename)
 
     except Exception as e:
-        print("[Assembly_Static] 기타 예외:")
         traceback.print_exc()
-        return "Internal Server Error (기타 예외)", 500
+        return "Internal Server Error", 500
 
+from routes.projects import projects_bp
+app.register_blueprint(projects_bp)
 
-from routes.parts import parts_bp
+from routes.parts import parts_bp, order_bp
 app.register_blueprint(parts_bp)
+app.register_blueprint(order_bp)
 
 from routes.assemblies import assemblies_bp
 app.register_blueprint(assemblies_bp)
-
-from routes.parts import order_bp 
-app.register_blueprint(order_bp)
-
-DATABASE = os.path.join(os.getcwd(), 'inventory.db')
-
-def get_db():
-    if 'db' not in g:
-        g.db = sqlite3.connect(DATABASE)
-        g.db.row_factory = sqlite3.Row
-    return g.db
 
 @app.teardown_appcontext
 def close_db(error):

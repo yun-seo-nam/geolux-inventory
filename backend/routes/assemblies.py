@@ -37,7 +37,7 @@ def create_assembly():
 
     cur.execute("SELECT id FROM assemblies WHERE assembly_name = ?", (name,))
     if cur.fetchone():
-        return jsonify({"error": "이미 존재하는 어셈블리 이름입니다"}), 400
+        return jsonify({"error": "이미 존재하는 이름입니다"}), 400
 
     cur.execute("""
         INSERT INTO assemblies (assembly_name, last_modified_user, create_date, update_date)
@@ -46,7 +46,7 @@ def create_assembly():
 
     db.commit()
 
-    return jsonify({"message": f"{name} 어셈블리 생성 완료", "assembly_id": cur.lastrowid})
+    return jsonify({"message": f"{name} 생성 완료", "assembly_id": cur.lastrowid})
 
 @assemblies_bp.route("/api/assemblies", methods=["GET"])
 def get_assemblies():
@@ -81,12 +81,10 @@ def delete_assemblies():
         cursor = conn.cursor()
 
         for assembly_id in ids:
-            # 이미지 삭제
             pattern = os.path.join(ASSEMBLY_IMAGE_DIR, f"assembly_{assembly_id}.*")
             for file in glob.glob(pattern):
                 os.remove(file)
 
-            # assembly_parts에서 해당 assembly_id 삭제
             cursor.execute("DELETE FROM assembly_parts WHERE assembly_id = ?", (assembly_id,))
 
         cursor.executemany("DELETE FROM assemblies WHERE id = ?", [(i,) for i in ids])
@@ -206,7 +204,7 @@ def upload_assembly_csv():
         except Exception as e:
             failed_rows.append((row.name + 2, str(e)))
             continue
-
+    recalculate_assembly_status(db, assembly_id)
     db.commit()
 
     result = {
@@ -284,15 +282,80 @@ def edit_assembly_basic_info(assembly_id):
     data = request.get_json()
     assembly_name = data.get('assembly_name')
     quantity_to_build = data.get('quantity_to_build')
+    version = data.get('version')
+    description = data.get('description')
+    last_modified_user = data.get('last_modified_user')
+    manufacturing_method = data.get('manufacturing_method')
+    work_date = data.get('work_date')  # "YYYY-MM-DD" 형식 문자열
+    work_duration = data.get('work_duration')
+    is_soldered = data.get('is_soldered')
+    is_tested = data.get('is_tested')    
 
     db = get_db()
     try:
         if assembly_name is not None:
-            db.execute("UPDATE assemblies SET assembly_name = ?, update_date = CURRENT_TIMESTAMP WHERE id = ?", (assembly_name, assembly_id))
+            db.execute("""
+                UPDATE assemblies 
+                SET assembly_name = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (assembly_name, assembly_id))
+        
         if quantity_to_build is not None:
-            db.execute("UPDATE assemblies SET quantity_to_build = ?, update_date = CURRENT_TIMESTAMP WHERE id = ?", (quantity_to_build, assembly_id))
+            db.execute("""
+                UPDATE assemblies 
+                SET quantity_to_build = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (quantity_to_build, assembly_id))
+        
+        if version is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET version = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (version, assembly_id))
+        
+        if description is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET description = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (description, assembly_id))
+        
+        if last_modified_user is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET last_modified_user = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (last_modified_user, assembly_id))
+        
+        if manufacturing_method is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET manufacturing_method = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (manufacturing_method, assembly_id))
+        
+        if work_date is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET work_date = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (work_date, assembly_id))
+        
+        if work_duration is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET work_duration = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (work_duration, assembly_id))
+        
+        if is_soldered is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET is_soldered = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (int(is_soldered), assembly_id))
+        
+        if is_tested is not None:
+            db.execute("""
+                UPDATE assemblies 
+                SET is_tested = ?, update_date = CURRENT_TIMESTAMP 
+                WHERE id = ?""", (int(is_tested), assembly_id))
+
         db.commit()
         return jsonify({'message': '수정 완료'}), 200
+    
     except Exception as e:
         db.rollback()
         return jsonify({'error': str(e)}), 500
@@ -302,28 +365,19 @@ def update_bom_item(assembly_id, part_id):
     data = request.get_json()
     reference = data.get('reference')
     quantity_per = data.get('quantity_per')
-    part_name = data.get('part_name')
 
-    if reference is None or quantity_per is None or part_name is None:
+    if reference is None or quantity_per is None:
         return jsonify({'error': '필수 항목 누락'}), 400
 
     db = get_db()
 
     try:
-        # 먼저 parts 테이블의 part_name 업데이트
-        db.execute("""
-            UPDATE parts
-            SET part_name = ?
-            WHERE id = ?
-        """, (part_name, part_id))
-
-        # assembly_parts 테이블의 참조 정보도 업데이트
         db.execute("""
             UPDATE assembly_parts
             SET reference = ?, quantity_per = ?, update_date = CURRENT_TIMESTAMP
             WHERE assembly_id = ? AND part_id = ?
         """, (reference, quantity_per, assembly_id, part_id))
-
+        recalculate_assembly_status(db, assembly_id)
         db.commit()
         return jsonify({'message': 'BOM 항목 수정 완료'}), 200
 
@@ -333,7 +387,7 @@ def update_bom_item(assembly_id, part_id):
 
     except Exception as e:
         db.rollback()
-        print("[BOM 수정 오류]", traceback.format_exc())  # 로그 출력
+        print("[BOM 수정 오류]", traceback.format_exc())  
         return jsonify({'error': f"서버 오류: {str(e)}"}), 500
     
 @assemblies_bp.route('/api/assemblies/<int:assembly_id>/bom/<int:part_id>', methods=['DELETE'])
@@ -344,6 +398,7 @@ def delete_bom_item(assembly_id, part_id):
             DELETE FROM assembly_parts
             WHERE assembly_id = ? AND part_id = ?
         """, (assembly_id, part_id))
+        recalculate_assembly_status(db, assembly_id)
         db.commit()
         return jsonify({'message': 'BOM 항목 삭제 완료'}), 200
     except Exception as e:
@@ -387,13 +442,41 @@ def add_bom_item(assembly_id):
                 assembly_id, part_id, quantity_per, reference
             ) VALUES (?, ?, ?, ?)
         """, (assembly_id, part_id, quantity_per, reference))
-
+        recalculate_assembly_status(db, assembly_id)
         db.commit()
         return jsonify({'message': 'BOM 항목 추가 완료'}), 201
 
     except Exception as e:
         db.rollback()
         return jsonify({'error': f'추가 실패: {str(e)}'}), 500
+    
+def recalculate_assembly_status(db, assembly_id):
+    row = db.execute("""
+        SELECT a.quantity_to_build, 
+               SUM(ap.quantity_per) as total_needed, 
+               SUM(ap.allocated_quantity) as total_allocated
+        FROM assemblies a
+        JOIN assembly_parts ap ON a.id = ap.assembly_id
+        WHERE a.id = ?
+        GROUP BY a.id
+    """, (assembly_id,)).fetchone()
+
+    if not row:
+        return 
+
+    total_required = row['quantity_to_build'] * row['total_needed']
+    allocated = row['total_allocated'] or 0
+    percent = 0 if total_required == 0 else (allocated / total_required)
+
+    if percent == 1:
+        status = 'Completed'
+    elif percent > 0:
+        status = 'In Progress'
+    else:
+        status = 'Planned'
+
+    db.execute("UPDATE assemblies SET status = ? WHERE id = ?", (status, assembly_id))
+    db.commit()
 
 @assemblies_bp.route("/api/assemblies/low_stock", methods=["GET"])
 def get_low_stock_assemblies():

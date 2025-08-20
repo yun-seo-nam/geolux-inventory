@@ -28,6 +28,8 @@ CREATE TABLE part_orders (
   part_id INTEGER NOT NULL,
   order_date TEXT NOT NULL,
   quantity_ordered INTEGER NOT NULL,
+  assembly_id INTEGER,
+  project_id INTEGER,
   FOREIGN KEY (part_id) REFERENCES parts(id) ON DELETE CASCADE
 );
 
@@ -40,7 +42,13 @@ CREATE TABLE assemblies (
   image_filename TEXT,
   create_date DATETIME DEFAULT CURRENT_TIMESTAMP,
   update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  last_modified_user TEXT
+  last_modified_user TEXT,
+  version TEXT,
+  manufacturing_method TEXT,
+  work_date DATE,
+  work_duration INTEGER,
+  is_soldered BOOLEAN,
+  is_tested BOOLEAN
 );
 
 CREATE TABLE assembly_parts (
@@ -55,3 +63,31 @@ CREATE TABLE assembly_parts (
     FOREIGN KEY (part_id) REFERENCES parts(id)
 );
 
+-- 추가내용 --
+CREATE TABLE projects (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  project_name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  status TEXT CHECK(status IN ('Planned', 'In Progress', 'Completed')) DEFAULT 'Planned',
+  create_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
+  last_modified_user TEXT,
+  start_date DATE,
+  end_date DATE
+);
+
+CREATE TABLE project_assemblies (
+  project_id INTEGER NOT NULL,
+  assembly_id INTEGER NOT NULL,
+  PRIMARY KEY (project_id, assembly_id),
+  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+  FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
+);
+
+CREATE TABLE users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT DEFAULT 'user',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);

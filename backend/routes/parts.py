@@ -428,7 +428,7 @@ def allocate_part(assembly_id, part_id):
         SET quantity = quantity - ?
         WHERE id = ?
     """, (amount, part_id))
-
+    recalculate_assembly_status(conn, assembly_id)
     conn.commit()
     return jsonify({'success': True}), 200
 
@@ -471,9 +471,37 @@ def deallocate_part(assembly_id, part_id):
         SET quantity = quantity + ?
         WHERE id = ?
     """, (amount, part_id))
-
+    recalculate_assembly_status(conn, assembly_id)
     conn.commit()
     return jsonify({'success': True}), 200
+
+def recalculate_assembly_status(conn, assembly_id):
+    row = conn.execute("""
+        SELECT a.quantity_to_build, 
+               SUM(ap.quantity_per) as total_needed, 
+               SUM(ap.allocated_quantity) as total_allocated
+        FROM assemblies a
+        JOIN assembly_parts ap ON a.id = ap.assembly_id
+        WHERE a.id = ?
+        GROUP BY a.id
+    """, (assembly_id,)).fetchone()
+
+    if not row:
+        return 
+
+    total_required = row['quantity_to_build'] * row['total_needed']
+    allocated = row['total_allocated'] or 0
+    percent = 0 if total_required == 0 else (allocated / total_required)
+
+    if percent == 1:
+        status = 'Completed'
+    elif percent > 0:
+        status = 'In Progress'
+    else:
+        status = 'Planned'
+
+    conn.execute("UPDATE assemblies SET status = ? WHERE id = ?", (status, assembly_id))
+    conn.commit()
 
 @parts_bp.route("/api/part_orders/recent", methods=["GET"])
 def get_recent_part_orders():
@@ -481,7 +509,7 @@ def get_recent_part_orders():
         db = get_db()
         rows = db.execute("""
             SELECT po.id, po.order_date, po.quantity_ordered,
-                   p.part_name
+                   p.part_name, p.id AS part_id
             FROM part_orders po
             JOIN parts p ON po.part_id = p.id
             ORDER BY po.order_date DESC
