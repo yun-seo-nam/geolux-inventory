@@ -1,11 +1,11 @@
-import React, { useEffect, useState, useRef, useContext, useCallback } from 'react';
-import { UserContext } from '../../hooks/UserContext';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, ListGroup, Button, Spinner, Form, Row, Col, Badge, Table, ButtonGroup, Modal } from 'react-bootstrap';
 import { FiEdit, FiTrash2, FiSave, FiX, FiUpload } from 'react-icons/fi';
 
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
+
 const PartDetailPage = () => {
-  const { selectedUser } = useContext(UserContext);
   const { id } = useParams();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
@@ -24,7 +24,7 @@ const PartDetailPage = () => {
 
   const fetchPart = useCallback(() => {
     setLoading(true);
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts/${id}`)
+    fetch(`${SERVER_URL}/api/parts/${id}`)
       .then((res) => {
         if (!res.ok) throw new Error(`서버 에러: ${res.status}`);
         return res.json();
@@ -42,7 +42,7 @@ const PartDetailPage = () => {
 
   // 부품 발주
   const fetchDeliveryOrders = useCallback(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts/${id}/orders`)
+    fetch(`${SERVER_URL}/api/parts/${id}/orders`)
       .then(res => res.json())
       .then(data => {
         setDeliveryOrders(data);
@@ -53,7 +53,7 @@ const PartDetailPage = () => {
   }, [id]);
 
   const saveOrder = (order) => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/part_orders`, {
+    fetch(`${SERVER_URL}/api/part_orders`, {
       method: 'POST',
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -78,7 +78,7 @@ const PartDetailPage = () => {
   };
 
   const fulfillOrder = (orderId, qty) => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/part_orders/${orderId}/fulfill`, {
+    fetch(`${SERVER_URL}/api/part_orders/${orderId}/fulfill`, {
       method: 'PATCH'
     })
       .then(res => {
@@ -124,7 +124,7 @@ const PartDetailPage = () => {
     const formData = new FormData();
     formData.append('image', file, filename);
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts/${id}/upload-image`, {
+    fetch(`${SERVER_URL}/api/parts/${id}/upload-image`, {
       method: 'POST',
       body: formData,
     })
@@ -182,10 +182,9 @@ const PartDetailPage = () => {
       location: editedPart.location ?? part.location ?? "",
       memo: editedPart.memo ?? part.memo ?? "",
       description: editedPart.description ?? part.description ?? "",
-      last_modified_user: selectedUser?.value || 'Unknown',
     };
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts/${id}`, {
+    fetch(`${SERVER_URL}/api/parts/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
@@ -205,7 +204,7 @@ const PartDetailPage = () => {
         console.error("수정 실패:", err);
         alert("수정에 실패했습니다. 잠시 후 다시 시도해주세요.");
       });
-  }, [part, editedPart, selectedUser, id, fetchPart]);
+  }, [part, editedPart, id, fetchPart]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -221,7 +220,7 @@ const PartDetailPage = () => {
   const handleDeleteSingle = (partId) => {
     if (!window.confirm(`부품 ${partId}를 삭제하시겠습니까?`)) return;
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts`, {
+    fetch(`${SERVER_URL}/api/parts`, {
       method: "DELETE",
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [partId] })
@@ -262,7 +261,7 @@ const PartDetailPage = () => {
         <Col className="text-end">
           <ButtonGroup>
             {!isEditing && (
-              <Button variant="outline-primary" onClick={() => {
+              <Button variant="primary" onClick={() => {
                 setEditedPart(part);
                 setIsEditing(true);
               }}>
@@ -270,16 +269,16 @@ const PartDetailPage = () => {
               </Button>
             )}
             {isEditing && (
-              <Button variant="outline-success" onClick={handleSave}>
+              <Button variant="success" onClick={handleSave}>
                 <FiSave size={18} />
               </Button>
             )}
             {isEditing && (
-              <Button variant="outline-secondary" onClick={() => setIsEditing(false)}>
+              <Button variant="secondary" onClick={() => setIsEditing(false)}>
                 <FiX size={18} />
               </Button>
             )}
-            <Button variant="outline-danger" onClick={() => handleDeleteSingle(part.id)}>
+            <Button variant="danger" onClick={() => handleDeleteSingle(part.id)}>
               <FiTrash2 size={18} />
             </Button>
           </ButtonGroup>
@@ -293,8 +292,8 @@ const PartDetailPage = () => {
               <div className="image-upload-container">
                 <img
                   src={
-                    part.image_url
-                      ? `${process.env.REACT_APP_API_URL}${part.image_url}`
+                    part.image_filename
+                      ? `${SERVER_URL}/static/images/parts/${part.image_filename}`
                       : '/default-part-icon.png'
                   }
                   alt="부품 이미지"
@@ -500,10 +499,6 @@ const PartDetailPage = () => {
               <tr>
                 <th>수정일</th>
                 <td>{formatDate(part.update_date)}</td>
-              </tr>
-              <tr>
-                <th>마지막 수정자</th>
-                <td>{part.last_modified_user}</td>
               </tr>
             </tbody>
           </Table>

@@ -11,11 +11,11 @@ const Dashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/low_stock`)
+    fetch(`/api/assemblies/low_stock`)
       .then(res => res.json())
       .then(data => setLowStockAssemblies(data));
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/part_orders/recent`)
+    fetch(`/api/part_orders/recent`)
       .then(res => res.json())
       .then(data => setPurchaseOrders(data));
   }, []);
@@ -28,7 +28,7 @@ const Dashboard = () => {
             <Card.Body>
               <Card.Title className="text-danger">
                 <FaBoxOpen className="me-2" />
-                재고 부족 어셈블리 ({lowStockAssemblies.length})
+                재고 부족 pcb ({lowStockAssemblies.length})
               </Card.Title>
               <ListGroup variant="flush">
                 {lowStockAssemblies.length > 0 ? lowStockAssemblies.slice(0, 5).map((item, idx) => (
@@ -37,7 +37,7 @@ const Dashboard = () => {
                     <Badge bg="danger">{Math.round(item.allocation_percent)}%</Badge>
                   </ListGroup.Item>
                 )) : (
-                  <ListGroup.Item>모든 어셈블리에 충분한 재고가 있습니다.</ListGroup.Item>
+                  <ListGroup.Item>모든 pcb에 충분한 재고가 있습니다.</ListGroup.Item>
                 )}
               </ListGroup>
             </Card.Body>

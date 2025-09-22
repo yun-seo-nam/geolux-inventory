@@ -1,19 +1,16 @@
-import React, { useContext, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import { Nav, Button } from 'react-bootstrap';
-import { FiUser, FiSun, FiMoon } from 'react-icons/fi';
+import { FiSun, FiMoon } from 'react-icons/fi';
 import { RxDashboard } from 'react-icons/rx';
 import { MdOutlineBuild } from 'react-icons/md';
 import { PiGear } from 'react-icons/pi';
-
-import CustomDropdown from './CustomDropdown';
-import { UserContext } from '../hooks/UserContext';
+import { RiTableView } from "react-icons/ri";
 
 function useColorMode() {
   const getInitial = () => {
     const saved = localStorage.getItem('theme');
     if (saved === 'light' || saved === 'dark') return saved;
-    // 시스템 설정 우선
     if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
       return 'dark';
     }
@@ -26,7 +23,6 @@ function useColorMode() {
     localStorage.setItem('theme', mode);
   }, [mode]);
 
-  // 시스템 변경 감지(사용자가 저장한 값 있으면 그대로 둠)
   useEffect(() => {
     const mql = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = (e) => {
@@ -43,14 +39,14 @@ function useColorMode() {
 
 const Layout = () => {
   const location = useLocation();
-  const { selectedUser } = useContext(UserContext);
   const { mode, toggle } = useColorMode();
 
   const items = useMemo(
     () => [
-      { to: '/partsPage', icon: <PiGear />, label: 'Parts', active: location.pathname.startsWith('/partsPage') || location.pathname === '/' },
-      { to: '/partsBuildPage', icon: <MdOutlineBuild />, label: 'PCB', active: location.pathname.startsWith('/partsBuildPage') },
-      { to: '/dashBoard', icon: <RxDashboard />, label: 'Dashboard', active: location.pathname === '/dashBoard' },
+      { to: '/partList', icon: <PiGear />, label: 'Parts', active: location.pathname.startsWith('/part') || location.pathname === '/' },
+      { to: '/buildList', icon: <MdOutlineBuild />, label: 'PCB', active: location.pathname.startsWith('/build') },
+      { to: '/project', icon: <RxDashboard />, label: 'Dashboard', active: location.pathname === '/project' },
+      { to: '/overView', icon: <RiTableView />, label: 'Overview', active: location.pathname === '/overView' },
     ],
     [location.pathname]
   );
@@ -60,11 +56,10 @@ const Layout = () => {
       {/* 헤더 */}
       <header className="layout-header">
         <Link to="/" className="brand-link" aria-label="Go home">
-          {/* 로고 텍스트 + 살짝의 아이콘 악센트 가능 */}
           <h4 className="brand-title mb-0 ms-5">GeoluxStock</h4>
         </Link>
 
-        <div className="header-tools">
+        <div className="header-tools" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           {/* 테마 토글 */}
           <Button
             variant="outline-light"
@@ -77,12 +72,6 @@ const Layout = () => {
             {mode === 'light' ? <FiMoon /> : <FiSun />}
           </Button>
 
-          {/* 사용자 드롭다운 */}
-          <CustomDropdown
-            defaultLabel={selectedUser ? selectedUser.label : '사용자'}
-            variant="dark"
-            icon={<FiUser size={18} />}
-          />
         </div>
       </header>
 

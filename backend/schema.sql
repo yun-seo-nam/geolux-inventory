@@ -18,7 +18,6 @@ CREATE TABLE parts (
   category_medium TEXT,
   category_small TEXT,
   image_filename TEXT,
-  last_modified_user TEXT,
   create_date DATETIME DEFAULT CURRENT_TIMESTAMP,
   update_date DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -42,7 +41,6 @@ CREATE TABLE assemblies (
   image_filename TEXT,
   create_date DATETIME DEFAULT CURRENT_TIMESTAMP,
   update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  last_modified_user TEXT,
   version TEXT,
   manufacturing_method TEXT,
   work_date DATE,
@@ -63,17 +61,12 @@ CREATE TABLE assembly_parts (
     FOREIGN KEY (part_id) REFERENCES parts(id)
 );
 
--- 추가내용 --
 CREATE TABLE projects (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_name TEXT NOT NULL UNIQUE,
   description TEXT,
-  status TEXT CHECK(status IN ('Planned', 'In Progress', 'Completed')) DEFAULT 'Planned',
   create_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  update_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-  last_modified_user TEXT,
-  start_date DATE,
-  end_date DATE
+  update_date DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE project_assemblies (
@@ -82,12 +75,4 @@ CREATE TABLE project_assemblies (
   PRIMARY KEY (project_id, assembly_id),
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
   FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
-);
-
-CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT DEFAULT 'user',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

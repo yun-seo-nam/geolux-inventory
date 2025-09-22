@@ -25,9 +25,17 @@ def allowed_file(filename):
 
 @assemblies_bp.route("/api/assemblies/create", methods=["POST"])
 def create_assembly():
-    data = request.get_json()
-    name = data.get("assembly_name", "").strip()
-    username = data.get("username", "Unknown")
+    data = request.get_json(silent=True) or {}
+    name = (data.get("assembly_name") or "").strip()
+
+    # 수량 파싱: 기본 1, 정수, 최소 1
+    raw_amount = data.get("quantity_to_build", 1)
+    try:
+        amount = int(raw_amount)
+    except (TypeError, ValueError):
+        amount = 1
+    if amount < 1:
+        amount = 1
 
     if not name:
         return jsonify({"error": "어셈블리 이름이 필요합니다"}), 400
@@ -39,11 +47,13 @@ def create_assembly():
     if cur.fetchone():
         return jsonify({"error": "이미 존재하는 이름입니다"}), 400
 
-    cur.execute("""
-        INSERT INTO assemblies (assembly_name, last_modified_user, create_date, update_date)
+    cur.execute(
+        """
+        INSERT INTO assemblies (assembly_name, quantity_to_build, create_date, update_date)
         VALUES (?, ?, datetime('now'), datetime('now'))
-    """, (name, username))
-
+        """,
+        (name, amount),
+    )
     db.commit()
 
     return jsonify({"message": f"{name} 생성 완료", "assembly_id": cur.lastrowid})
@@ -105,8 +115,6 @@ def upload_assembly_csv():
     if not file.filename.endswith('.csv'):
         return jsonify({"error": "CSV 파일만 업로드 가능합니다"}), 400
 
-    username = request.form.get("username", "Unknown")
-
     try:
         try:
             df = pd.read_csv(file, encoding='utf-8')
@@ -135,9 +143,10 @@ def upload_assembly_csv():
         return jsonify({"error": f"이미 존재하는 어셈블리 이름입니다: {assembly_name}"}), 400
 
     cur.execute("""
-        INSERT INTO assemblies (assembly_name, last_modified_user, create_date, update_date)
-        VALUES (?, ?, datetime('now'), datetime('now'))
-    """, (assembly_name, username))
+        INSERT INTO assemblies (assembly_name, create_date, update_date)
+        VALUES (?, datetime('now'), datetime('now'))
+    """, (assembly_name,))
+
     assembly_id = cur.lastrowid
 
     grouped_parts = defaultdict(lambda: {
@@ -187,11 +196,11 @@ def upload_assembly_csv():
                     INSERT INTO parts (
                         part_name, manufacturer, description, package,
                         category_large, memo, value,
-                        create_date, update_date, last_modified_user
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?)
+                        create_date, update_date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
                 """, (
                     part_name, manufacturer, description, package,
-                    category, memo, value, username
+                    category, memo, value
                 ))
                 part_id = cur.lastrowid
 
@@ -284,7 +293,6 @@ def edit_assembly_basic_info(assembly_id):
     quantity_to_build = data.get('quantity_to_build')
     version = data.get('version')
     description = data.get('description')
-    last_modified_user = data.get('last_modified_user')
     manufacturing_method = data.get('manufacturing_method')
     work_date = data.get('work_date')  # "YYYY-MM-DD" 형식 문자열
     work_duration = data.get('work_duration')
@@ -316,12 +324,6 @@ def edit_assembly_basic_info(assembly_id):
                 UPDATE assemblies 
                 SET description = ?, update_date = CURRENT_TIMESTAMP 
                 WHERE id = ?""", (description, assembly_id))
-        
-        if last_modified_user is not None:
-            db.execute("""
-                UPDATE assemblies 
-                SET last_modified_user = ?, update_date = CURRENT_TIMESTAMP 
-                WHERE id = ?""", (last_modified_user, assembly_id))
         
         if manufacturing_method is not None:
             db.execute("""
@@ -411,7 +413,6 @@ def add_bom_item(assembly_id):
     part_name = data.get('part_name')
     reference = data.get('reference', '')
     quantity_per = data.get('quantity_per', 1)
-    username = data.get('username', 'Unknown')
 
     if not part_name:
         return jsonify({'error': 'part_name은 필수입니다'}), 400
@@ -431,9 +432,9 @@ def add_bom_item(assembly_id):
                 INSERT INTO parts (
                     part_name, manufacturer, description, package,
                     category_large, memo, value,
-                    create_date, update_date, last_modified_user
-                ) VALUES (?, '', '', '', '', '', '', datetime('now'), datetime('now'), ?)
-            """, (part_name, username))
+                    create_date, update_date
+                ) VALUES (?, '', '', '', '', '', '', datetime('now'), datetime('now'))
+            """, (part_name,))
             part_id = cur.lastrowid
 
         # assembly_parts에 연결
@@ -508,3 +509,55 @@ def get_low_stock_assemblies():
     except Exception as e:
         current_app.logger.error(f"Error fetching low stock assemblies: {e}")
         return jsonify({'error': str(e)}), 500
+    
+@assemblies_bp.route('/api/assemblies/full/<int:assembly_id>', methods=['PUT'])
+def update_assembly_full(assembly_id):
+    data = request.get_json() or {}
+    if not data:
+        return jsonify({"error": "Empty body"}), 400
+    try:
+        allowed = [
+            "assembly_name","quantity_to_build","description","status",
+            "image_filename","version","manufacturing_method",
+            "work_date","work_duration","is_soldered","is_tested"
+        ]
+        data = {k: data[k] for k in data if k in allowed}
+
+        # bool -> 0/1
+        for k in ("is_soldered","is_tested"):
+            if k in data:
+                v = data[k]
+                if isinstance(v, str):
+                    data[k] = 1 if v.lower()=="true" else 0 if v.lower()=="false" else v
+                elif isinstance(v, bool):
+                    data[k] = 1 if v else 0
+        # int
+        for k in ("quantity_to_build","work_duration"):
+            if k in data and data[k] not in (None, ""):
+                try: data[k] = int(data[k])
+                except: pass
+
+        db = get_db()
+        cur = db.cursor()
+        sets = ", ".join([f"{k}=?" for k in data.keys()])
+        values = list(data.values())
+        sets += ", update_date=datetime('now')"
+        values.append(assembly_id)
+
+        print("[DEBUG][asm FULL] SQL:", f"UPDATE assemblies SET {sets} WHERE id=?")
+        print("[DEBUG][asm FULL] VAL:", values)
+
+        cur.execute(f"UPDATE assemblies SET {sets} WHERE id=?", values)
+        db.commit()
+        print("[DEBUG][asm FULL] rowcount:", cur.rowcount)
+
+        row = db.execute("SELECT * FROM assemblies WHERE id=?", (assembly_id,)).fetchone()
+        if not row:
+            return jsonify({"error":"Assembly not found"}), 404
+
+        return jsonify(dict(row)), 200
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+

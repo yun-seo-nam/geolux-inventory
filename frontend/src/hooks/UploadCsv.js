@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import axios from 'axios';
 
-export const useCsvUploader = (uploadUrl) => {
+// CRA/Vite에서 환경변수 읽기
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
+
+export const useCsvUploader = (uploadPath) => {
   const [file, setFile] = useState(null);
   const [message, setMessage] = useState('');
 
@@ -20,8 +23,11 @@ export const useCsvUploader = (uploadUrl) => {
     }
 
     try {
-      const res = await axios.post(uploadUrl, formData);
-      setMessage(`업로드 성공: ${res.data.inserted}개 등록됨`);
+      // uploadPath는 "/api/assemblies/upload_csv" 같은 상대경로만 받음
+      const res = await axios.post(`${SERVER_URL}${uploadPath}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setMessage(`업로드 성공: ${res.data.inserted || 0}개 등록됨`);
     } catch (err) {
       setMessage(`오류: ${err.response?.data?.error || err.message}`);
     }

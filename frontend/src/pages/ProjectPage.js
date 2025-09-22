@@ -1,55 +1,49 @@
-import React, { useState, useEffect } from 'react';
-import { Row, Col, Table, Button, Form, InputGroup, Badge, Modal } from 'react-bootstrap';
+// src/pages/ProjectPage.js
+import React, { useState, useEffect, useCallback } from 'react';
+import { Row, Col, Table, Button, Form, InputGroup, Modal } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { FiTrash2 } from 'react-icons/fi';
 import CustomButton from '../components/CustomButton';
-
-const API_URL = process.env.REACT_APP_API_URL || '';
 
 const ProjectPage = () => {
   const navigate = useNavigate();
 
   const [projects, setProjects] = useState([]);
   const [filter, setFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('전체');
 
   const [showModal, setShowModal] = useState(false);
   const [newProject, setNewProject] = useState({
     project_name: '',
     description: '',
-    status: 'Planned'
   });
 
-  const fetchProjects = () => {
-    fetch(`${API_URL}/projects`)
+  const API_BASE = process.env.REACT_APP_SERVER_URL;
+
+  const fetchProjects = useCallback(() => {
+    fetch(`${API_BASE}/api/projects`)
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) {
-          setProjects(data);
-        } else {
-          console.error("서버에서 배열이 아닌 데이터를 받음:", data);
-          setProjects([]);
-        }
+        if (Array.isArray(data)) setProjects(data);
+        else setProjects([]);
       })
       .catch(err => {
-        console.error("프로젝트 목록을 불러오는 데 실패했습니다:", err);
+        console.error("프로젝트 목록 불러오기 실패:", err);
       });
-  };
+  }, [API_BASE]);
 
   useEffect(() => {
     fetchProjects();
-  }, []);
+  }, [fetchProjects]);
 
   const handleSearchChange = (e) => setFilter(e.target.value);
-  const handleStatusFilterChange = (e) => setStatusFilter(e.target.value);
 
   const handleDelete = async (id) => {
     if (!window.confirm('정말 삭제하시겠습니까?')) return;
 
-    fetch(`${API_URL}/projects/${id}`, { method: 'DELETE' })
+    fetch(`${API_BASE}/api/projects/${id}`, { method: 'DELETE' })
       .then(res => {
         if (!res.ok) throw new Error('삭제 실패');
-        setProjects(projects.filter((proj) => proj.id !== id));
+        setProjects(prev => prev.filter((proj) => proj.id !== id));
       })
       .catch(err => {
         console.error('삭제 중 오류:', err);
@@ -57,34 +51,23 @@ const ProjectPage = () => {
       });
   };
 
-  const getStatusBadge = (status, end_date) => {
-
-    const statusMap = {
-      'Planned': '대기',
-      'In Progress': '진행 중',
-      'Completed': '완료'
-    };
-    const colorMap = {
-      'Planned': 'secondary',
-      'In Progress': 'info',
-      'Completed': 'success',
-    };
-    return <Badge bg={colorMap[status]}>{statusMap[status]}</Badge>;
-  };
-
+  // status 관련 필터 제거 → 텍스트 필터만
   const filteredProjects = projects
     .filter((proj) =>
       (proj.project_name?.toLowerCase().includes(filter.toLowerCase()) ||
-        proj.description?.toLowerCase().includes(filter.toLowerCase())) &&
-      (statusFilter === '전체' || getStatusBadge(proj.status).props.children === statusFilter)
+        proj.description?.toLowerCase().includes(filter.toLowerCase()))
     )
     .sort((a, b) => new Date(a.create_date) - new Date(b.create_date));
 
   const handleCreateProject = () => {
-    fetch(`${API_URL}/projects`, {
+    fetch(`${API_BASE}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newProject),
+      // status 제거
+      body: JSON.stringify({
+        project_name: newProject.project_name,
+        description: newProject.description,
+      }),
     })
       .then(async res => {
         const result = await res.json();
@@ -95,7 +78,7 @@ const ProjectPage = () => {
       })
       .then(() => {
         setShowModal(false);
-        setNewProject({ project_name: '', description: '', status: 'Planned' });
+        setNewProject({ project_name: '', description: '' });
         fetchProjects();
       })
       .catch(err => {
@@ -109,7 +92,7 @@ const ProjectPage = () => {
       <Row className="mb-3"></Row>
 
       <Row className="mb-3">
-        <Col md={4}>
+        <Col md={6}>
           <InputGroup>
             <Form.Control
               type="text"
@@ -118,14 +101,6 @@ const ProjectPage = () => {
               onChange={handleSearchChange}
             />
           </InputGroup>
-        </Col>
-        <Col md={3}>
-          <Form.Select value={statusFilter} onChange={handleStatusFilterChange}>
-            <option value="전체">전체 상태</option>
-            <option value="대기">대기</option>
-            <option value="진행 중">진행 중</option>
-            <option value="완료">완료</option>
-          </Form.Select>
         </Col>
         <Col className="text-end">
           <CustomButton variant="primary" onClick={() => setShowModal(true)}>새 프로젝트</CustomButton>
@@ -137,7 +112,6 @@ const ProjectPage = () => {
           <tr className='text-center'>
             <th>프로젝트명</th>
             <th>설명</th>
-            <th>진행 상태</th>
             <th>생성일</th>
             <th>작업</th>
           </tr>
@@ -145,16 +119,15 @@ const ProjectPage = () => {
         <tbody>
           {filteredProjects.length === 0 ? (
             <tr>
-              <td colSpan="5" className="text-center text-muted">검색 결과 없음</td>
+              <td colSpan="4" className="text-center text-muted">검색 결과 없음</td>
             </tr>
           ) : (
             filteredProjects.map((proj) => (
               <tr className='text-center' key={proj.id}>
-                <td style={{ cursor: 'pointer' }} onClick={() => navigate(`/projectPage/${proj.id}`)}>
+                <td style={{ cursor: 'pointer' }} onClick={() => navigate(`/projectDetail/${proj.id}`)}>
                   {proj.project_name}
                 </td>
                 <td>{proj.description || '-'}</td>
-                <td>{getStatusBadge(proj.status, proj.end_date)}</td>
                 <td>{proj.create_date?.split(' ')[0]}</td>
                 <td>
                   <Button variant="outline-danger" size="sm" onClick={() => handleDelete(proj.id)}><FiTrash2 /></Button>
@@ -170,12 +143,18 @@ const ProjectPage = () => {
           <Modal.Title>새 프로젝트 등록</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Form>
+          <Form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreateProject();
+            }}
+          >
             <Form.Group className="mb-2">
               <Form.Label>프로젝트명</Form.Label>
               <Form.Control
                 value={newProject.project_name}
                 onChange={(e) => setNewProject({ ...newProject, project_name: e.target.value })}
+                autoFocus
               />
             </Form.Group>
             <Form.Group className="mb-2">
@@ -185,6 +164,8 @@ const ProjectPage = () => {
                 onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
               />
             </Form.Group>
+            {/* 엔터로도 등록 가능 */}
+            <button type="submit" style={{ display: 'none' }} />
           </Form>
         </Modal.Body>
         <Modal.Footer>

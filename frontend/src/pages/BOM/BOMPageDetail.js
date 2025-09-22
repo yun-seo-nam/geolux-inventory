@@ -1,14 +1,14 @@
-import React, { useEffect, useState, useRef, useContext, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Row, Col, Button, Spinner, ProgressBar, Form, Modal } from 'react-bootstrap';
 import { FiEdit, FiTrash2, FiSave, FiX } from 'react-icons/fi';
 import { FaSearch, FaBox } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
 import ReusableTooltip from '../../components/ReusableTooltip';
-import { UserContext } from '../../hooks/UserContext';
+
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
 
 const BOMPageDetail = () => {
-  const { selectedUser } = useContext(UserContext);
   const { id } = useParams();
   const navigate = useNavigate();
   const [assembly, setAssembly] = useState(null);
@@ -45,6 +45,8 @@ const BOMPageDetail = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editValues, setEditValues] = useState({});
 
+  const [, setDeletingId] = useState(null);
+
   useEffect(() => {
     if (assembly) {
       setEditValues({ ...assembly });
@@ -56,12 +58,11 @@ const BOMPageDetail = () => {
   };
 
   const saveAllEdits = () => {
-    fetch(`/api/assemblies/${assembly.id}/edit`, {
+    fetch(`${SERVER_URL}/api/assemblies/${assembly.id}/edit`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...editValues,
-        last_modified_user: selectedUser?.value || 'Unknown',
       }),
     })
       .then(res => res.json())
@@ -83,7 +84,7 @@ const BOMPageDetail = () => {
   };
 
   useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/detail`)
+    fetch(`${SERVER_URL}/api/assemblies/${id}/detail`)
       .then(res => res.json())
       .then(data => {
         setAssembly(data.assembly);
@@ -91,14 +92,14 @@ const BOMPageDetail = () => {
         setLoading(false);
       });
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/parts`)
+    fetch(`${SERVER_URL}/api/parts`)
       .then(res => res.json())
       .then(data => setAllParts(data));
   }, [id]);
 
   const refreshData = useCallback(() => {
     setLoading(true);
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/detail`)
+    fetch(`${SERVER_URL}/api/assemblies/${id}/detail`)
       .then((res) => res.json())
       .then((data) => {
         setAssembly(data.assembly);
@@ -128,13 +129,12 @@ const BOMPageDetail = () => {
     if (
       !window.confirm(`${isDeallocate ? '할당 취소' : '할당'} 수량 ${allocAmount}개를 확정할까요?`))
       return;
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/bom/${selectedPart.part_id}/${isDeallocate ? 'deallocate' : 'allocate'}`,
+    fetch(`${SERVER_URL}/api/assemblies/${id}/bom/${selectedPart.part_id}/${isDeallocate ? 'deallocate' : 'allocate'}`,
       {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: allocAmount,
-          last_modified_user: selectedUser?.value || 'Unknown',
         }),
       }
     )
@@ -148,7 +148,7 @@ const BOMPageDetail = () => {
         console.error(err);
         alert('처리에 실패했습니다.');
       });
-  }, [allocAmount, selectedPart, isDeallocate, assembly?.quantity_to_build, selectedUser?.value, id, refreshData]);
+  }, [allocAmount, selectedPart, isDeallocate, assembly?.quantity_to_build, id, refreshData]);
 
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -164,35 +164,69 @@ const BOMPageDetail = () => {
     };
   }, [showAllocateModal, showDeallocateModal, allocAmount, selectedPart, handleConfirm]);
 
-  const handleDeleteRow = (part_id) => {
-    if (!window.confirm('정말 삭제하시겠습니까?')) return;
+  const handleDeleteRow = async (part_id) => {
+    // 행 찾기
+    const row = parts.find(p => p.part_id === part_id);
+    if (!row) {
+      alert('행 정보를 찾을 수 없어요.');
+      return;
+    }
+    const allocated = Number(row.allocated_quantity || 0);
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/bom/${part_id}`, {
-      method: 'DELETE',
-    })
-      .then(res => {
-        if (!res.ok) throw new Error('삭제 실패');
-        return res.json();
-      })
-      .then(() => {
-        alert('삭제되었습니다.');
-        refreshData();
-      })
-      .catch(err => {
-        console.error(err);
-        alert('삭제 실패');
+    // 기본 확인 문구
+    let msg = '정말 삭제하시겠습니까?';
+    if (allocated > 0) {
+      msg = `부품을 삭제하면 할당된 부품의 개수(${allocated}개)만큼 기존 재고가 증가합니다. 진행하시겠습니까?`;
+    }
+    if (!window.confirm(msg)) return;
+
+    try {
+      setDeletingId(part_id);
+
+      // 1) 할당 취소(필요 시)
+      if (allocated > 0) {
+        const resDealloc = await fetch(
+          `${SERVER_URL}/api/assemblies/${id}/bom/${part_id}/deallocate`,
+          {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ amount: allocated }),
+          }
+        );
+
+        if (!resDealloc.ok) {
+          const text = await resDealloc.text().catch(() => '');
+          throw new Error(`할당 취소 실패: ${resDealloc.status} ${text}`);
+        }
+      }
+
+      // 2) 실제 삭제
+      const resDel = await fetch(`${SERVER_URL}/api/assemblies/${id}/bom/${part_id}`, {
+        method: 'DELETE',
       });
+      if (!resDel.ok) {
+        const text = await resDel.text().catch(() => '');
+        throw new Error(`삭제 실패: ${resDel.status} ${text}`);
+      }
+
+      alert('삭제되었습니다.');
+      refreshData();
+    } catch (err) {
+      console.error(err);
+      alert(err.message || '삭제 처리 중 오류가 발생했습니다.');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   const handleAddPart = () => {
     if (!newPart.part_name) return alert('부품명을 입력해주세요.');
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/bom`, {
+    fetch(`${SERVER_URL}/api/assemblies/${id}/bom`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...newPart,
-        last_modified_user: selectedUser?.value || 'Unknown',
       })
     })
       .then(res => {
@@ -223,12 +257,11 @@ const BOMPageDetail = () => {
   };
 
   const handleSaveRow = (part_id) => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/bom/${part_id}`, {
+    fetch(`${SERVER_URL}/api/assemblies/${id}/bom/${part_id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...editedRowData,
-        last_modified_user: selectedUser?.value || 'Unknown',
       }),
     })
       .then(res => {
@@ -290,12 +323,11 @@ const BOMPageDetail = () => {
 
       if (toAllocate <= 0) return null;
 
-      return fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/bom/${p.part_id}/allocate`, {
+      return fetch(`${SERVER_URL}/api/assemblies/${id}/bom/${p.part_id}/allocate`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amount: toAllocate,
-          last_modified_user: selectedUser?.value || 'Unknown',
         }),
       });
     }).filter(Boolean);
@@ -334,7 +366,7 @@ const BOMPageDetail = () => {
     const formData = new FormData();
     formData.append('image', file, filename);
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/upload-image`, {
+    fetch(`${SERVER_URL}/api/assemblies/${id}/upload-image`, {
       method: 'POST',
       body: formData,
     })
@@ -345,7 +377,7 @@ const BOMPageDetail = () => {
       .then(() => {
         alert("이미지 업로드 완료");
         setLoading(true);
-        fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/detail`)
+        fetch(`${SERVER_URL}/api/assemblies/${id}/detail`)
           .then(res => res.json())
           .then(data => {
             setAssembly(data.assembly);
@@ -380,12 +412,11 @@ const BOMPageDetail = () => {
       payload.is_tested = editValue;
     }
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/${id}/edit`, {
+    fetch(`${SERVER_URL}/api/assemblies/${id}/edit`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         ...payload,
-        last_modified_user: selectedUser?.value || 'Unknown',
       }),
     })
       .then((res) => res.json())
@@ -459,7 +490,7 @@ const BOMPageDetail = () => {
                 <img
                   src={
                     assembly.image_filename
-                      ? `${process.env.REACT_APP_API_URL}/static/images/assemblies/${assembly.image_filename}`
+                      ? `${SERVER_URL}/static/images/assemblies/${assembly.image_filename}`
                       : '/default-part-icon.png'
                   }
                   alt="Assembly"
@@ -574,7 +605,6 @@ const BOMPageDetail = () => {
                 label={`${totalAllocated} / ${totalNeeded} (${Math.round(allocationPercent)}%)`}
                 className="mb-2"
               />
-              <p><strong>마지막 수정자:</strong> {assembly.last_modified_user}</p>
               <p><strong>수정일:</strong> {new Date(assembly.update_date).toLocaleDateString()}</p>
             </Col>
           </Row>

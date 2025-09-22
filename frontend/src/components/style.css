@@ -484,8 +484,6 @@ body {
 }
 
 .table-custom th {
-  background: #f5f6f7;
-  color: #374151;
   font-weight: 700;
   white-space: nowrap;
   padding: .75rem 1rem;
@@ -494,7 +492,6 @@ body {
 .table-custom td {
   padding: .75rem 1rem;
   vertical-align: middle;
-  border-top: 1px solid #eef2f7;
 }
 
 /* =========================

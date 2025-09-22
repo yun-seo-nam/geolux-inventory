@@ -5,6 +5,8 @@ import { MdOutlineBuild } from "react-icons/md";
 import { FaCartShopping } from "react-icons/fa6";
 import { FiEdit, FiTrash2, FiSave, FiX } from 'react-icons/fi';
 
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
+
 const ProjectPageDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -24,36 +26,30 @@ const ProjectPageDetail = () => {
   const [editingAssemblyId, setEditingAssemblyId] = useState(null);
   const [editedQuantity, setEditedQuantity] = useState(1);
 
-  const computeProjectStatus = (end_date, status) => {
-    const today = new Date();
-    if (status === 'Completed') return 'Completed';
-    if (!end_date) return 'Planned';
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [projDraft, setProjDraft] = useState({ project_name: '', description: '', start_date: '', end_date: '' });
+  const [savingProj, setSavingProj] = useState(false);
 
-    const dueDate = new Date(end_date);
-    const diffDays = Math.ceil((dueDate - today) / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) return 'Overdue';
-    if (diffDays <= 3) return 'Due Soon';
-    return 'Planned';
-  };
-
+  // 프로젝트 상세
   useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/projects/${id}`)
+    fetch(`${SERVER_URL}/api/projects/${id}`)
       .then(res => res.json())
       .then(data => setProject(data))
       .catch(err => console.error("프로젝트 상세 불러오기 실패:", err));
   }, [id]);
 
+  // 전체 어셈블리 목록
   useEffect(() => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies`)
+    fetch(`${SERVER_URL}/api/assemblies`)
       .then(res => res.json())
       .then(data => setAllAssemblies(data))
       .catch(err => console.error('PCB 목록 로드 실패:', err));
   }, []);
 
+  // 요약 데이터
   const fetchSummary = async (projectId) => {
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/projects/${projectId}/summary`);
+      const res = await fetch(`${SERVER_URL}/api/projects/${projectId}/summary`);
       const data = await res.json();
       setAssemblies(data.assemblies || []);
       setOrders(data.orders || []);
@@ -75,6 +71,7 @@ const ProjectPageDetail = () => {
     );
   };
 
+  // 어셈블리 생성
   const handleCreateBO = async () => {
     const { assembly_name, quantity_to_build, description } = newBO;
     if (!assembly_name || quantity_to_build <= 0) {
@@ -83,7 +80,7 @@ const ProjectPageDetail = () => {
     }
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/projects/${id}/assemblies/create`, {
+      const res = await fetch(`${SERVER_URL}/api/projects/${id}/assemblies/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -108,33 +105,12 @@ const ProjectPageDetail = () => {
     }
   };
 
-  const getStatusBadge = (status, end_date) => {
-    const computedStatus = computeProjectStatus(end_date, status);
-
-    const statusMap = {
-      'Planned': '대기',
-      'In Progress': '진행 중',
-      'Completed': '완료',
-      'Due Soon': '마감 임박',
-      'Overdue': '지연됨',
-    };
-
-    const colorMap = {
-      'Planned': 'secondary',
-      'In Progress': 'info',
-      'Completed': 'success',
-      'Due Soon': 'warning',
-      'Overdue': 'danger',
-    };
-
-    return <Badge bg={colorMap[computedStatus]}>{statusMap[computedStatus]}</Badge>;
-  };
-
+  // 어셈블리 삭제
   const handleDeleteAssembly = async (assemblyId) => {
     if (!window.confirm("이 프로젝트에서 해당 PCB를 제거하시겠습니까?")) return;
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/api/projects/${id}/assemblies/${assemblyId}`, {
+      const res = await fetch(`${SERVER_URL}/api/projects/${id}/assemblies/${assemblyId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error("삭제 실패");
@@ -156,7 +132,7 @@ const ProjectPageDetail = () => {
 
   const handleSaveQuantity = async (assemblyId) => {
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/assemblies/${assemblyId}/update`, {
+      const res = await fetch(`${SERVER_URL}/api/assemblies/${assemblyId}/update`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ quantity_to_build: editedQuantity }),
@@ -172,26 +148,96 @@ const ProjectPageDetail = () => {
     }
   };
 
+  // 편집 시작
+  const startEditProject = () => {
+    if (!project) return;
+    setProjDraft({
+      project_name: project.project_name || '',
+      description: project.description || '',
+      start_date: project.start_date || '',
+      end_date: project.end_date || '',
+    });
+    setIsEditingProject(true);
+  };
+
+  // 취소
+  const cancelEditProject = () => {
+    setIsEditingProject(false);
+  };
+
+  // 저장
+  const saveProject = async () => {
+    try {
+      setSavingProj(true);
+      const res = await fetch(`${SERVER_URL}/api/projects/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          description: projDraft.description,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || '업데이트 실패');
+
+      setProject(data);
+      setIsEditingProject(false);
+      await fetchSummary(id);
+    } catch (e) {
+      alert(e.message);
+    } finally {
+      setSavingProj(false);
+    }
+  };
+
   return (
     <div className="content-wrapper">
       {project && (
         <div className="mb-4">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <div className="d-flex align-items-center gap-3">
-              {getStatusBadge(project.status, project.end_date)}
               <h2 className="mb-0">{project.project_name}</h2>
+            </div>
+            <div className="d-flex gap-2">
+              {isEditingProject ? (
+                <>
+                  <Button variant="success" size="sm" disabled={savingProj} onClick={saveProject}>
+                    {savingProj ? '저장중...' : '저장'}
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={cancelEditProject}>취소</Button>
+                </>
+              ) : (
+                <Button variant="outline-primary" size="sm" onClick={startEditProject}>편집</Button>
+              )}
             </div>
           </div>
 
           <Card>
             <Card.Body>
               <Row className="mb-1">
-                <Col>
-                  <strong>설명 : {project.description || '-'}</strong>
-                </Col>
-                <Col className='d-flex flex-column'>
-                  <strong>시작일 : {project.create_date?.split(' ')[0] || '-'}</strong>
-                  <strong>만료일 : {project.end_date?.split(' ')[0] || '-'}</strong>
+                <Col className="d-flex flex-column gap-2">
+
+                  {/* 설명 편집 전/후 토글 */}
+                  <div>
+                    <strong className="me-2">설명 :</strong>
+                    {isEditingProject ? (
+                      <Form.Control
+                        as="textarea"
+                        rows={2}
+                        value={projDraft.description}
+                        onChange={(e) =>
+                          setProjDraft((d) => ({ ...d, description: e.target.value }))
+                        }
+                        disabled={savingProj}
+                      />
+                    ) : (
+                      <span>{project.description || '-'}</span>
+                    )}
+                  </div>
+
+                  <div>
+                    <strong className="me-2">시작일 :</strong>
+                    <span>{project.create_date?.split(' ')[0] || '-'}</span>
+                  </div>
                 </Col>
               </Row>
             </Card.Body>
@@ -209,14 +255,14 @@ const ProjectPageDetail = () => {
               </div>
               <Button variant="primary" onClick={() => setShowAssemblySearchModal(true)}>
                 + PCB 생성
-              </Button></Card.Header>
+              </Button>
+            </Card.Header>
             <Card.Body>
               <Table striped bordered hover size="sm">
                 <thead>
                   <tr className='text-center'>
                     <th>제품명</th>
                     <th>수량</th>
-                    <th>상태</th>
                     <th>작업</th>
                   </tr>
                 </thead>
@@ -225,7 +271,7 @@ const ProjectPageDetail = () => {
                     editingAssemblyId === asm.id ? (
                       <tr className="text-center" key={asm.id}>
                         <td style={{ cursor: 'pointer', textDecoration: 'underline', color: '#007bff' }}
-                          onClick={() => navigate(`/partsBuildPage/${asm.id}`)}>
+                          onClick={() => navigate(`/buildList/${asm.id}`)}>
                           {asm.assembly_name}
                         </td>
                         <td>
@@ -237,7 +283,6 @@ const ProjectPageDetail = () => {
                             style={{ width: '80px', margin: '0 auto' }}
                           />
                         </td>
-                        <td>{getStatusBadge(asm.status)}</td>
                         <td className="d-flex justify-content-center gap-2">
                           <Button variant="outline-success" size="sm" onClick={() => handleSaveQuantity(asm.id)}><FiSave /></Button>
                           <Button variant="outline-secondary" size="sm" onClick={handleCancelEdit}><FiX /></Button>
@@ -246,11 +291,10 @@ const ProjectPageDetail = () => {
                     ) : (
                       <tr className="text-center" key={asm.id}>
                         <td style={{ cursor: 'pointer', textDecoration: 'underline', color: '#007bff' }}
-                          onClick={() => navigate(`/partsBuildPage/${asm.id}`)}>
+                          onClick={() => navigate(`/buildDetail/${asm.id}`)}>
                           {asm.assembly_name}
                         </td>
                         <td>{asm.quantity_to_build}</td>
-                        <td>{getStatusBadge(asm.status)}</td>
                         <td className="d-flex justify-content-center gap-2">
                           <Button size="sm" variant="outline-success" onClick={() => handleStartEdit(asm)}><FiEdit /></Button>
                           <Button size="sm" variant="outline-danger" onClick={() => handleDeleteAssembly(asm.id)}><FiTrash2 /></Button>
@@ -313,7 +357,7 @@ const ProjectPageDetail = () => {
                   {materials.map((mat, index) => (
                     <tr key={index}>
                       <td style={{ cursor: 'pointer', textDecoration: 'underline', color: '#007bff' }}
-                        onClick={() => navigate(`/partsPage/${mat.part_id}`)}>{mat.part_name}</td>
+                        onClick={() => navigate(`/partDetail/${mat.part_id}`)}>{mat.part_name}</td>
                       <td>{mat.total_required}</td>
                       <td>{mat.current_stock}</td>
                       <td>{getStockStatus(mat.total_required, mat.current_stock)}</td>
@@ -326,6 +370,7 @@ const ProjectPageDetail = () => {
         </Col>
       </Row>
 
+      {/* PCB 검색 모달 */}
       <Modal show={showAssemblySearchModal} onHide={() => setShowAssemblySearchModal(false)} size="lg">
         <Modal.Header closeButton>
           <Modal.Title>PCB 검색 및 선택</Modal.Title>
@@ -372,7 +417,7 @@ const ProjectPageDetail = () => {
           </Row>
           <hr />
           <Form.Control
-            placeholder="어셈블리명 검색"
+            placeholder="pcb 검색"
             value={assemblySearch}
             onChange={(e) => setAssemblySearch(e.target.value)}
             className="mb-3"
@@ -414,6 +459,7 @@ const ProjectPageDetail = () => {
         </Modal.Body>
       </Modal>
 
+      {/* PCB 생성 모달 */}
       <Modal show={showCreateModal} onHide={() => setShowCreateModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>PCB 생성</Modal.Title>
@@ -434,16 +480,6 @@ const ProjectPageDetail = () => {
               min="1"
               value={newBO.quantity_to_build}
               onChange={(e) => setNewBO(prev => ({ ...prev, quantity_to_build: Number(e.target.value) }))}
-            />
-          </Form.Group>
-
-          <Form.Group className="mb-3">
-            <Form.Label>설명</Form.Label>
-            <Form.Control
-              as="textarea"
-              rows={2}
-              value={newBO.description}
-              onChange={(e) => setNewBO(prev => ({ ...prev, description: e.target.value }))}
             />
           </Form.Group>
         </Modal.Body>

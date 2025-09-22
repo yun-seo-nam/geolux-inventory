@@ -1,5 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
-import { UserContext } from '../hooks/UserContext';
+import React, { useState } from 'react';
 import { Modal, Button, Form } from 'react-bootstrap';
 
 const UploadPart = ({ show, handleClose, onPartAdded }) => {
@@ -16,18 +15,13 @@ const UploadPart = ({ show, handleClose, onPartAdded }) => {
   });
 
   const [errors, setErrors] = useState({});
-  const { selectedUser } = useContext(UserContext);
-
-  // 디버깅용 로그
-  useEffect(() => {
-    console.log("UploadPart 컴포넌트 렌더링됨");
-    console.log("현재 selectedUser 상태:", selectedUser);
-  }, [selectedUser]);
 
   const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
     setErrors({ ...errors, [e.target.name]: '' });
   };
+
+  const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
 
   const handleSubmit = async () => {
     const newErrors = {};
@@ -38,18 +32,12 @@ const UploadPart = ({ show, handleClose, onPartAdded }) => {
       setErrors(newErrors);
       return;
     }
-
-    const lastModifiedUser = selectedUser?.label || "Unknown";
-
-    console.log("등록 요청 시 last_modified_user 값:", lastModifiedUser);
-
     const payload = {
       ...form,
-      last_modified_user: selectedUser?.label || "Unknown",
     };
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/api/parts`, {
+      const res = await fetch(`${SERVER_URL}/api/parts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -80,7 +68,7 @@ const UploadPart = ({ show, handleClose, onPartAdded }) => {
       alert('등록 중 오류가 발생했습니다.');
     }
   };
-
+  
   return (
     <Modal show={show} onHide={handleClose} centered
       size="md" scrollable>

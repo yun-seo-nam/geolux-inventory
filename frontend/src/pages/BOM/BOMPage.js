@@ -1,9 +1,12 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { UserContext } from '../../hooks/UserContext';
 import { Row, Col, Form, Card, Pagination, Button, InputGroup, Modal, Badge } from 'react-bootstrap';
 import { FiGrid, FiList, FiTrash2 } from 'react-icons/fi';
 import { MdOutlineAdd, MdOutlineCancel } from "react-icons/md";
+
+const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
+
+const formatDate = (s) => (!s ? '날짜 없음' : (s.includes('T') ? s.split('T')[0] : s.split(' ')[0]));
 
 const BOMPage = () => {
   const navigate = useNavigate();
@@ -20,24 +23,51 @@ const BOMPage = () => {
   const [csvFile, setCsvFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  const { selectedUser } = useContext(UserContext);
-
   const [showModal, setShowModal] = useState(false);
   const [newAssemblyName, setNewAssemblyName] = useState('');
+  const [assemblyAmount, setAssemblyAmount] = useState('');
+  const [creating, setCreating] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState('');
 
-  const fetchAssemblies = () => {
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies`)
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setAssemblies(data);
-        else setAssemblies([]);
+  const fetchAssemblies = async () => {
+    try {
+      const res = await fetch(`${SERVER_URL}/api/assemblies`);
+      const base = await res.json();
+      const list = Array.isArray(base) ? base : [];
+
+      // /detail 응답과 병합해서 update_date 확정
+      const details = await Promise.all(
+        list.map(a =>
+          fetch(`${SERVER_URL}/api/assemblies/${a.id}/detail`)
+            .then(r => (r.ok ? r.json() : null))
+            .catch(() => null)
+        )
+      );
+
+      const merged = list.map((a, i) => {
+        const d = details[i]?.assembly;
+        return {
+          ...a,
+          update_date: d?.update_date ?? a.update_date ?? null,
+          create_date: d?.create_date ?? a.create_date ?? null,
+          status: d?.status ?? a.status ?? 'Planned',
+          quantity_to_build: a.quantity_to_build ?? d?.quantity_to_build ?? 0,
+          image_url: a.image_url
+            ?? (d?.image_filename ? `${SERVER_URL}/static/images/assemblies/${d.image_filename}` : null),
+        };
       });
+
+      setAssemblies(merged);
+    } catch (e) {
+      console.error("어셈블리 목록 불러오기 실패:", e);
+      setAssemblies([]);
+    }
   };
 
   useEffect(() => {
     fetchAssemblies();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredAssemblies = assemblies.filter(a =>
@@ -46,13 +76,19 @@ const BOMPage = () => {
   );
 
   const sortedAssemblies = [...filteredAssemblies].sort((a, b) => {
-    const fieldA = a[sortField];
-    const fieldB = b[sortField];
-    if (fieldA === null) return 1;
-    if (fieldB === null) return -1;
-    return sortOrder === 'asc'
-      ? (fieldA > fieldB ? 1 : -1)
-      : (fieldA < fieldB ? 1 : -1);
+    const getVal = (obj) => {
+      const v = obj[sortField];
+      if (v == null) return null;
+      if (sortField === 'update_date' || sortField === 'create_date') {
+        const t = new Date(v).getTime();
+        return Number.isNaN(t) ? null : t;
+      }
+      return v;
+    };
+    const va = getVal(a), vb = getVal(b);
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    return sortOrder === 'asc' ? (va > vb ? 1 : -1) : (va < vb ? 1 : -1);
   });
 
   const paginatedAssemblies = sortedAssemblies.slice(
@@ -79,10 +115,10 @@ const BOMPage = () => {
   }
 
   const handleDeleteSelected = async () => {
-    if (!window.confirm(`선택한 ${selectedIds.length}개의 어셈블리를 삭제하시겠습니까?`)) return;
+    if (!window.confirm(`선택한 ${selectedIds.length}개의 pcb를 삭제하시겠습니까?`)) return;
 
     try {
-      await fetch(`${process.env.REACT_APP_API_URL}/api/assemblies`, {
+      await fetch(`${SERVER_URL}/api/assemblies`, {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ids: selectedIds }),
@@ -98,12 +134,11 @@ const BOMPage = () => {
 
   const handleDeleteAllFiltered = () => {
     const idsToDelete = filteredAssemblies.map(a => a.id);
-
     if (!idsToDelete.length) return;
 
-    if (!window.confirm(`현재 필터링된 ${idsToDelete.length}개의 어셈블리를 모두 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
+    if (!window.confirm(`현재 필터링된 ${idsToDelete.length}개의 pcb를 모두 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`)) return;
 
-    fetch(`${process.env.REACT_APP_API_URL}/api/assemblies`, {
+    fetch(`${SERVER_URL}/api/assemblies`, {
       method: "DELETE",
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: idsToDelete })
@@ -113,6 +148,9 @@ const BOMPage = () => {
         fetchAssemblies();
         setSelectedIds([]);
         setDeleteMode(false);
+      })
+      .catch(err => {
+        console.error("전체 삭제 실패:", err);
       });
   };
 
@@ -121,11 +159,9 @@ const BOMPage = () => {
 
     const formData = new FormData();
     formData.append("file", csvFile);
-    formData.append("username", selectedUser?.value || 'Unknown');
-
     setIsUploading(true);
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/upload_csv`, {
+      const res = await fetch(`${SERVER_URL}/api/assemblies/upload_csv`, {
         method: "POST",
         body: formData
       });
@@ -144,40 +180,59 @@ const BOMPage = () => {
     setIsUploading(false);
   };
 
-  const getImageSrc = (url) => {
-    return url ? `${process.env.REACT_APP_API_URL}${url}` : '/default-part-icon.png';
-  };
+  const getImageSrc = (url) => (url ? `${url}` : '/default-part-icon.png');
   const handleOpenModal = () => setShowModal(true);
   const handleCloseModal = () => {
     setShowModal(false);
     setNewAssemblyName('');
   };
 
+  const handleAmountChange = (e) => {
+    const v = e.target.value;
+    if (v === "") { setAssemblyAmount(""); return; }
+    const n = Number(v);
+    if (!Number.isFinite(n)) return;
+    setAssemblyAmount(Math.max(1, Math.floor(n)));
+  };
+
   const handleCreateAssembly = async () => {
-    if (!newAssemblyName.trim()) {
-      alert('어셈블리 이름을 입력해주세요.');
+    const name = newAssemblyName.trim();
+    const qty = Number(assemblyAmount) || 1;
+
+    if (!name) {
+      alert("이름을 입력하세요.");
+      return;
+    }
+    if (qty < 1) {
+      alert("수량은 1 이상이어야 합니다.");
       return;
     }
 
     try {
-      const res = await fetch(`${process.env.REACT_APP_API_URL}/api/assemblies/create`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      setCreating(true);
+      const res = await fetch(`${SERVER_URL}/api/assemblies/create`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          assembly_name: newAssemblyName.trim(),
-          username: selectedUser?.value || 'Unknown',
+          assembly_name: name,
+          quantity_to_build: qty,
         }),
       });
-
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || '생성 실패');
-
-      alert(result.message || '어셈블리 생성 완료');
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data?.error || "생성 실패");
+        return;
+      }
+      alert(`${name} 생성 완료`);
+      setNewAssemblyName("");
+      setAssemblyAmount(1);
       handleCloseModal();
       fetchAssemblies();
-    } catch (err) {
-      console.error('어셈블리 생성 실패:', err);
-      alert('어셈블리 생성에 실패했습니다.');
+    } catch (e) {
+      console.error(e);
+      alert("요청 중 오류가 발생했습니다.");
+    } finally {
+      setCreating(false);
     }
   };
 
@@ -235,7 +290,7 @@ const BOMPage = () => {
         )}
         <Col xs="auto" className="d-flex gap-2 justify-content-end">
           <Button
-            variant={deleteMode ? "danger" : "outline-danger"}
+            variant={deleteMode ? "danger" : "danger"}
             onClick={() => {
               setDeleteMode(prev => {
                 if (prev) setSelectedIds([]);
@@ -247,10 +302,6 @@ const BOMPage = () => {
           </Button>
           <Button onClick={handleOpenModal}>< MdOutlineAdd /></Button>
         </Col>
-      </Row>
-
-      <Row className="d-flex justify-content-between align-items-center mb-3">
-
       </Row>
 
       <Row className="d-flex align-items-center mb-2">
@@ -363,7 +414,7 @@ const BOMPage = () => {
                       backgroundColor: '#f8f9fa',
                       cursor: 'pointer',
                     }}
-                    onClick={() => navigate(`/partsBuildPage/${asm.id}`)}
+                    onClick={() => navigate(`/buildDetail/${asm.id}`)}
                   />
                 </div>
               )}
@@ -380,7 +431,7 @@ const BOMPage = () => {
                       marginRight: '10px',
                       maxWidth: '200px',
                     }}
-                    onClick={() => navigate(`/partsBuildPage/${asm.id}`)}
+                    onClick={() => navigate(`/buildDetail/${asm.id}`)}
                   >
                     {asm.assembly_name}
                   </div>
@@ -393,7 +444,7 @@ const BOMPage = () => {
 
                 <div className="mb-1 d-flex flex-row-reverse">
                   <Card.Text className="mb-0" style={{ fontSize: '0.8rem', color: '#666', whiteSpace: 'nowrap' }}>
-                    {asm.update_date ? asm.update_date.split(' ')[0] : '날짜 없음'}
+                    {formatDate(asm.update_date)}
                   </Card.Text>
                 </div>
               </Card.Body>
@@ -426,23 +477,45 @@ const BOMPage = () => {
         )
       }
       <Modal show={showModal} onHide={handleCloseModal} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>새 어셈블리 생성</Modal.Title>
-        </Modal.Header>
-        <Modal.Body>
-          <Form.Group>
-            <Form.Label>이름</Form.Label>
-            <Form.Control
-              type="text"
-              value={newAssemblyName}
-              onChange={(e) => setNewAssemblyName(e.target.value)}
-            />
-          </Form.Group>
-        </Modal.Body>
-        <Modal.Footer>
-          <Button variant="secondary" onClick={handleCloseModal}>취소</Button>
-          <Button variant="primary" onClick={handleCreateAssembly}>생성</Button>
-        </Modal.Footer>
+        <Form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleCreateAssembly();
+          }}
+        >
+          <Modal.Header closeButton>
+            <Modal.Title>새 pcb 생성</Modal.Title>
+          </Modal.Header>
+          <Modal.Body>
+            <Form.Group>
+              <Form.Label>이름</Form.Label>
+              <Form.Control
+                type="text"
+                value={newAssemblyName}
+                onChange={(e) => setNewAssemblyName(e.target.value)}
+                autoFocus
+              />
+              <Form.Label className="mt-3">수량</Form.Label>
+              <Form.Control
+                type="number"
+                inputMode="numeric"
+                min={1}
+                step={1}
+                value={assemblyAmount}
+                onChange={handleAmountChange}
+                placeholder="1"
+              />
+            </Form.Group>
+          </Modal.Body>
+          <Modal.Footer>
+            <Button variant="secondary" onClick={handleCloseModal} disabled={creating}>
+              취소
+            </Button>
+            <Button variant="primary" type="submit" disabled={creating}>
+              {creating ? "생성 중..." : "생성"}
+            </Button>
+          </Modal.Footer>
+        </Form>
       </Modal>
     </div >
   );
