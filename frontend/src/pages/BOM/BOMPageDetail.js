@@ -283,6 +283,128 @@ const BOMPageDetail = () => {
     setEditedRowData({});
   };
 
+  // ===== Alias API helpers =====
+  // 현재 행의 part_name이 alias인지 확인
+  const isAliasName = async (name) => {
+    const a = await getAliasByName((name || '').toUpperCase());
+    return a ? a : null;
+  };
+
+  // alias 토글 ON: alias 생성 + 현재 part 링크
+  const handleAliasToggleOn = async (rowPart) => {
+    try {
+      // 이미 있으면 재사용, 없으면 생성
+      const upName = (rowPart.part_name || '').toUpperCase();
+      let alias = await getAliasByName(upName);
+      if (!alias) {
+        alias = await createAlias(upName); // {id, alias_name}
+      }
+      // 이 부품(part_id)와 연결(중복 에러는 무시)
+      try { await addAliasLink(alias.id, rowPart.part_id); } catch { }
+
+      alert('별칭 등록 완료');
+    } catch (e) {
+      console.error(e);
+      alert('별칭 등록에 실패했습니다.');
+    }
+  };
+
+  // alias 토글 OFF: alias 삭제
+  const handleAliasToggleOff = async (rowPart) => {
+    try {
+      const alias = await isAliasName(rowPart.part_name);
+      if (!alias) return; // 없으면 할 일 없음
+      if (!window.confirm('이 별칭을 삭제할까요? 연결된 링크도 함께 삭제됩니다.')) return;
+      await deleteAliasById(alias.id);
+      alert('별칭 해제 완료');
+    } catch (e) {
+      console.error(e);
+      alert('별칭 해제에 실패했습니다.');
+    }
+  };
+
+  const replaceRowNameWithLinkedPart = async (rowPart, linkedPartName, linkedPartId) => {
+    try {
+      // 이미 같은 part가 있으면 즉시 차단
+      if ((parts || []).some(p => p.part_id === linkedPartId)) {
+        alert('이미 같은 부품이 PCB 내에 있습니다.');
+        await refreshData(); // 또는 window.location.reload();
+        return;
+      }
+
+      // 서버의 안전 스왑 API 호출 (삭제 금지)
+      const res = await fetch(`${SERVER_URL}/api/assemblies/${id}/bom/${rowPart.part_id}/swap`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ new_part_id: linkedPartId }),
+      });
+
+      if (res.status === 409) {
+        alert('이미 같은 부품이 PCB 내에 있습니다.');
+        await refreshData();
+        return;
+      }
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        alert(`안전 교체 실패: ${res.status} ${errText || ''}`);
+        await refreshData();
+        return;
+      }
+
+      await refreshData();
+      alert('부품을 안전하게 교체했습니다.');
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || '부품 교체에 실패했습니다.');
+    }
+  };
+
+  async function fetchJson(url, opts) {
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      const msg = await res.text().catch(() => '');
+      throw new Error(msg || `HTTP ${res.status}`);
+    }
+    return res.status === 204 ? null : res.json();
+  }
+
+  // 1) alias 검색(이름으로 정확히 찾기)
+  async function getAliasByName(name) {
+    if (!name) return null;
+    const q = encodeURIComponent(name);
+    const rows = await fetchJson(`${SERVER_URL}/api/aliases/search?q=${q}&limit=50&offset=0`);
+    const up = (name || '').trim().toUpperCase();
+    return (rows || []).find(r => (r.alias_name || '').toUpperCase() === up) || null;
+  }
+
+  // 2) alias 생성
+  async function createAlias(alias_name) {
+    return fetchJson(`${SERVER_URL}/api/aliases`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alias_name })
+    });
+  }
+
+  // 3) alias 삭제
+  async function deleteAliasById(aliasId) {
+    await fetchJson(`${SERVER_URL}/api/aliases/${aliasId}`, { method: 'DELETE' });
+  }
+
+  // 4) alias 링크들 조회
+  async function getAliasLinks(aliasId) {
+    return fetchJson(`${SERVER_URL}/api/aliases/${aliasId}/links`);
+  }
+
+  // 5) alias에 part 링크 추가
+  async function addAliasLink(aliasId, part_id) {
+    return fetchJson(`${SERVER_URL}/api/aliases/${aliasId}/links`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ part_id })
+    });
+  }
+
   if (loading) {
     return (
       <div className="d-flex justify-content-center align-items-center" style={{ height: '60vh' }}>
@@ -429,6 +551,143 @@ const BOMPageDetail = () => {
   const cancelEdit = () => {
     setEditingField(null);
     setEditValue('');
+  };
+
+  // === 별칭 토글/드롭다운 셀 (이 파일 내부 전용) ===
+  const AliasToggleCell = ({ rowPart }) => {
+    const [open, setOpen] = useState(false);
+    const [loadingAlias, setLoadingAlias] = useState(false);
+    const [aliasInfo, setAliasInfo] = useState(null); // { id, alias_name }
+    const [links, setLinks] = useState([]);           // [{ part_id, part_name, link_id }]
+    const boxRef = useRef(null);
+
+    // 현재 행 이름이 alias인지 확인
+    useEffect(() => {
+      let alive = true;
+      (async () => {
+        try {
+          const a = await getAliasByName((rowPart.part_name || '').toUpperCase());
+          if (!alive) return;
+          setAliasInfo(a || null);
+        } catch {
+          setAliasInfo(null);
+        }
+      })();
+      return () => { alive = false; };
+    }, [rowPart.part_name]);
+
+    // 드롭다운 열릴 때 연결 링크 로딩
+    useEffect(() => {
+      if (!open || !aliasInfo) return;
+      let alive = true;
+      (async () => {
+        try {
+          setLoadingAlias(true);
+          const rows = await getAliasLinks(aliasInfo.id);
+          if (!alive) return;
+          const mapped = (rows || []).map(r => ({
+            part_id: r.part_id,
+            part_name: r.part_name,
+            link_id: r.id ?? r.link_id ?? r.linkId,
+          }));
+          setLinks(mapped);
+        } catch {
+          setLinks([]);
+        } finally {
+          if (alive) setLoadingAlias(false);
+        }
+      })();
+      return () => { alive = false; };
+    }, [open, aliasInfo]);
+
+    // 바깥 클릭 시 드롭다운 닫기
+    useEffect(() => {
+      const onDown = (e) => {
+        if (!boxRef.current) return;
+        if (!boxRef.current.contains(e.target)) setOpen(false);
+      };
+      document.addEventListener('mousedown', onDown);
+      return () => document.removeEventListener('mousedown', onDown);
+    }, []);
+
+    const onToggleChange = async (e) => {
+      const checked = e.target.checked;
+      if (checked) {
+        await handleAliasToggleOn(rowPart);
+        const a = await getAliasByName((rowPart.part_name || '').toUpperCase());
+        setAliasInfo(a || null);
+      } else {
+        await handleAliasToggleOff(rowPart);
+        setAliasInfo(null);
+        setOpen(false);
+      }
+    };
+
+    const onPickLinked = async (nm, pid) => {
+      await replaceRowNameWithLinkedPart(rowPart, nm, pid);
+      setAliasInfo(null);
+      setOpen(false);
+    };
+
+    const isOn = !!aliasInfo;
+
+    return (
+      <div className="d-inline-flex align-items-center position-relative" ref={boxRef}>
+        <Form.Check
+          type="switch"
+          checked={isOn}
+          onChange={onToggleChange}
+          id={`alias-switch-${rowPart.part_id}`}
+          label={isOn ? 'ON' : 'OFF'}
+        />
+        {isOn && (
+          <Button
+            variant="outline-secondary"
+            size="sm"
+            className="ms-2"
+            onClick={() => setOpen(v => !v)}
+            title="연결된 부품명으로 변경"
+          >
+            ▾
+          </Button>
+        )}
+        {isOn && open && (
+          <div
+            className="bg-white border rounded shadow-sm mt-1"
+            style={{
+              position: 'absolute',
+              top: '100%',
+              right: 0,
+              zIndex: 1050,
+              minWidth: 220,
+              maxHeight: '40vh',
+              overflowY: 'auto'
+            }}
+          >
+            <div className="p-2 border-bottom fw-bold">연결된 부품명 선택</div>
+            {loadingAlias ? (
+              <div className="p-2 text-muted">불러오는 중…</div>
+            ) : links.length === 0 ? (
+              <div className="p-2 text-muted">연결된 부품 없음</div>
+            ) : (
+              <Table hover size="sm" className="mb-0">
+                <tbody>
+                  {links.map(l => (
+                    <tr
+                      key={l.part_id}
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => onPickLinked(l.part_name, l.part_id)}
+                    >
+                      <td className="py-1 px-2">{l.part_name}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -685,6 +944,7 @@ const BOMPageDetail = () => {
                 <th>할당량</th>
                 <th>할당</th>
                 <th>작업</th>
+                <th>alias</th>
               </tr>
             </thead>
             <tbody className="text-center">
@@ -713,7 +973,7 @@ const BOMPageDetail = () => {
                       </td>
                       <td
                         style={{ cursor: 'pointer', textDecoration: 'underline', color: '#007bff' }}
-                        onClick={() => navigate(`/partsPage/${p.part_id}`)}
+                        onClick={() => navigate(`/partDetail/${p.part_id}`)}
                       >
                         {p.part_name}
                       </td>
@@ -744,6 +1004,9 @@ const BOMPageDetail = () => {
                         <Button variant="outline-success" size="sm" onClick={() => handleSaveRow(p.part_id)}><FiSave /></Button>{' '}
                         <Button variant="outline-secondary" size="sm" onClick={handleCancelEdit}><FiX /></Button>
                       </td>
+                      <td>
+                        <AliasToggleCell rowPart={p} />
+                      </td>
                     </tr>
                   );
                 } else {
@@ -763,8 +1026,8 @@ const BOMPageDetail = () => {
                         />
                       </td>
                       <td
-                        style={{ cursor: 'pointer', textDecoration: 'underline', color: '#007bff' }}
-                        onClick={() => navigate(`/partsPage/${p.part_id}`)}
+                        style={{ cursor: 'pointer', color: '#007bff' }}
+                        onClick={() => navigate(`/partdetail/${p.part_id}`)}
                       >
                         {p.part_name}
                       </td>
@@ -823,6 +1086,9 @@ const BOMPageDetail = () => {
                       <td>
                         <Button variant="outline-primary" size="sm" onClick={() => handleEditRow(p)}><FiEdit /></Button>{' '}
                         <Button variant="outline-danger" size="sm" onClick={() => handleDeleteRow(p.part_id)}><FiTrash2 /></Button>
+                      </td>
+                      <td>
+                        <AliasToggleCell rowPart={p} />
                       </td>
                     </tr>
                   );

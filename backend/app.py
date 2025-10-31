@@ -18,7 +18,6 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "your_secret_key_here")
 
 app.config["DATABASE"] = DATABASE
 
-# CORS (정확한 오리진만 허용; 쿠키/자격증명 불필요하므로 supports_credentials=False)
 CORS(
     app,
     supports_credentials=False
@@ -61,10 +60,17 @@ def init_db_once():
 def restrict_to_company_wifi():
     if request.method == "OPTIONS":  # CORS preflight는 통과
         return None
-    allowed_network = ipaddress.IPv4Network("192.168.0.0/24")
+
+    allowed_networks = [
+    ipaddress.IPv4Network("192.168.0.0/24"),
+    ipaddress.IPv4Network("192.168.1.0/24"),
+    ]
+
     client_ip_raw = request.headers.get("X-Forwarded-For", request.remote_addr)
     client_ip = ipaddress.IPv4Address(client_ip_raw.split(",")[0].strip())
-    if client_ip not in allowed_network and client_ip != ipaddress.IPv4Address("127.0.0.1"):
+
+    if not any(client_ip in net for net in allowed_networks) \
+    and client_ip != ipaddress.IPv4Address("127.0.0.1"):
         abort(403)
 
 # ─────────────────────────────────────────────────────────────
@@ -105,13 +111,14 @@ def serve_assembly_image(filename):
 # 블루프린트 등록 (프로젝트 구조에 맞게 유지)
 # ─────────────────────────────────────────────────────────────
 from routes.projects import projects_bp
-from routes.parts import parts_bp, order_bp
+from routes.parts import parts_bp, order_bp, aliases_bp
 from routes.assemblies import assemblies_bp
 
 app.register_blueprint(projects_bp)
 app.register_blueprint(parts_bp)
 app.register_blueprint(order_bp)
 app.register_blueprint(assemblies_bp)
+app.register_blueprint(aliases_bp)
 
 # ─────────────────────────────────────────────────────────────
 # 엔트리포인트

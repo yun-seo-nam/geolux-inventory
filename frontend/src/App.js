@@ -8,6 +8,7 @@ import PartDetail from "./pages/Part/PartsPageDetail";
 import ProjectList from "./pages/DashBoard";
 import ProjectDetail from "./pages/ProjectPageDetail";
 import OverView from "./pages/OverView";
+import AliasName from './pages/AliasName';
 
 import "bootstrap/dist/css/bootstrap.min.css";
 import "../src/components/style.css";
@@ -26,6 +27,7 @@ function App() {
             <Route path="project" element={<ProjectList />} />
             <Route path="projectDetail/:id" element={<ProjectDetail />} />
             <Route path="overView" element={<OverView />} />
+            <Route path="aliasName" element={<AliasName />} />
           </Route>
         </Routes>
       </div>

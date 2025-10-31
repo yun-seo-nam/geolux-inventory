@@ -249,7 +249,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: .6rem 1.5rem;
+  padding: 40px 30px;
   border-bottom: none;
   box-shadow: none;
   color: #fff;
@@ -314,12 +314,7 @@ body {
   transition: width .28s ease;
 }
 
-.layout-sidebar:hover {
-  width: var(--sidebar-expanded);
-}
-
 .layout-main {
-  margin-left: var(--sidebar-collapsed);
   transition: margin-left .28s ease;
   min-height: calc(100vh - var(--header-height));
   background: var(--bg-page);
@@ -328,15 +323,9 @@ body {
   background-color: var(--brand-grad-a);
   display: flex;
   flex-direction: column;
-
-}
-
-.layout-sidebar:hover~.layout-main {
-  margin-left: var(--sidebar-expanded);
 }
 
 .layout-footer {
-  margin-left: var(--sidebar-collapsed);
   transition: margin-left .28s ease;
   padding: .9rem 1rem;
   text-align: center;
@@ -355,7 +344,6 @@ body {
 ========================= */
 .main-content-wrapper {
   background: var(--bg-card);
-  border-top-left-radius: var(--radius-lg);
   padding: 1.25rem;
   box-shadow: var(--shadow-sm);
   min-height: 500px;
@@ -389,12 +377,6 @@ body {
   font-size: 18px
 }
 
-.sidebar-label {
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity .25s ease, visibility .25s ease;
-}
-
 .layout-sidebar:hover .sidebar-label {
   opacity: 1;
   visibility: visible;
@@ -408,7 +390,6 @@ body {
 }
 
 .sidebar-link.active {
-  border-color: rgba(255, 255, 255, .36);
   font-weight: 800;
   color: #fff;
 }

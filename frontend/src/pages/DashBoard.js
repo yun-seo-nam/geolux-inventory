@@ -28,12 +28,12 @@ const Dashboard = () => {
             <Card.Body>
               <Card.Title className="text-danger">
                 <FaBoxOpen className="me-2" />
-                재고 부족 pcb ({lowStockAssemblies.length})
+                할당된 재고 부족 pcb ({lowStockAssemblies.length})
               </Card.Title>
               <ListGroup variant="flush">
                 {lowStockAssemblies.length > 0 ? lowStockAssemblies.slice(0, 5).map((item, idx) => (
                   <ListGroup.Item key={idx} className="d-flex justify-content-between align-items-center">
-                    <span style={{ cursor: "pointer" }} onClick={() => navigate(`/partsBuildPage/${item.id}`)}>{item.assembly_name}</span>
+                    <span style={{ cursor: "pointer" }} onClick={() => navigate(`/buildDetail/${item.id}`)}>{item.assembly_name}</span>
                     <Badge bg="danger">{Math.round(item.allocation_percent)}%</Badge>
                   </ListGroup.Item>
                 )) : (

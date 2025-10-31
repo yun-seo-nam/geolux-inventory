@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 
 import {
   Row, Col, Form, Card, Pagination, ToggleButtonGroup, ToggleButton,
-  Button, InputGroup, Table
+  Button, InputGroup, Table, Modal
 } from 'react-bootstrap';
 import { FiGrid, FiList, FiTrash2 } from 'react-icons/fi';
 import { MdOutlineAdd, MdOutlineCancel, MdOutlineEdit, MdSave } from "react-icons/md";
@@ -20,21 +20,28 @@ const buildPartUpdatePayload = (src) => {
     return Number.isFinite(n) ? n : def;
   };
   const str = (v, def = "") => (v ?? "").toString();
+  const optNumOrNull = (v) => {
+    if (v === "" || v === null || v === undefined) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
 
   const payload = {
+    // 기존
     part_name: str(src.part_name),
     quantity: num(src.quantity, 0),
-    // category_medium: str(src.category_medium),
-    // category_small: str(src.category_small),
-    // mounting_type: str(src.mounting_type),
     location: str(src.location),
-    // memo: str(src.memo),
     description: str(src.description),
-    // package: str(src.package),
-    // value: str(src.value),
-    // manufacturer: str(src.manufacturer),
-    // price: src.price === undefined || src.price === null ? null : num(src.price),
-    // purchase_url: str(src.purchase_url),
+
+    // 새로 추가
+    type: str(src.mounting_type),
+    package: str(src.package),
+    price: optNumOrNull(src.price),
+    supplier: str(src.supplier),
+    purchase_date: str(src.purchase_date),
+    manufacturer: str(src.manufacturer),
+    purchase_url: str(src.purchase_url),
+    memo: str(src.memo),
   };
 
   Object.keys(payload).forEach(k => {
@@ -43,11 +50,8 @@ const buildPartUpdatePayload = (src) => {
   return payload;
 };
 
-
-/** ---------- 분리된 뷰: GridView (카드형) ---------- */
 const GridView = ({
   parts, navigate, deleteMode, selectedIds, setSelectedIds,
-  // 인라인 편집용
   inlineEdit, onFieldChange, onSaveRow, savingIds
 }) => {
 
@@ -79,8 +83,8 @@ const GridView = ({
                 variant="top"
                 src={
                   part.image_filename
-                  ? `${SERVER_URL}/static/images/parts/${part.image_filename}`
-                  : '/default-part-icon.png'
+                    ? `${SERVER_URL}/static/images/parts/${part.image_filename}`
+                    : '/default-part-icon.png'
                 }
                 alt="part preview"
                 loading="lazy"
@@ -156,27 +160,143 @@ const GridView = ({
   );
 };
 
-/** ---------- 분리된 뷰: ListView (표형) ---------- */
 const ListView = ({
   parts, navigate, deleteMode, selectedIds, setSelectedIds,
   inlineEdit, onFieldChange, onSaveRow, savingIds
 }) => {
+  const stop = (e) => inlineEdit && e.stopPropagation();
+  const dateToInput = (v) => !v ? "" : String(v).split(" ")[0];
+
+  // 말줄임 공통 스타일
+  const tdEllipsis = { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '100%' };
+  const inputEllipsis = { width: '100%', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' };
+
+  // 비율(총 20단위, 단위=5%)
+  const UNIT = 5;
+  const WIDTHS_PERCENT = {
+    name: 2 * UNIT,     // 품명 10
+    qty: 2 * UNIT,      // 수량 5
+    loc: 1 * UNIT,      // 위치 5
+    desc: 3 * UNIT,     // 설명 15
+    type: 1 * UNIT,     // Type 5
+    pkg: 1 * UNIT,      // 패키지 5
+    price: 1 * UNIT,    // 가격 5
+    supplier: 1 * UNIT, // 공급업체 5
+    pdate: 2 * UNIT,    // 구매일 10
+    mfr: 1 * UNIT,      // 제조사 5
+    url: 2 * UNIT,      // URL 15
+    memo: 2 * UNIT,     // Memo 10
+    updated: 1 * UNIT   // 수정일 5
+  };
+
+  // 공백 텍스트 노드 방지: 배열로 만든 뒤 렌더
+  const colEls = [];
+  if (deleteMode) colEls.push(<col key="sel" style={{ width: 56 }} />);
+  colEls.push(<col key="name" style={{ width: `${WIDTHS_PERCENT.name}%` }} />);
+  colEls.push(<col key="qty" style={{ width: `${WIDTHS_PERCENT.qty}%` }} />);
+  colEls.push(<col key="loc" style={{ width: `${WIDTHS_PERCENT.loc}%` }} />);
+  colEls.push(<col key="desc" style={{ width: `${WIDTHS_PERCENT.desc}%` }} />);
+  colEls.push(<col key="type" style={{ width: `${WIDTHS_PERCENT.type}%` }} />);
+  colEls.push(<col key="pkg" style={{ width: `${WIDTHS_PERCENT.pkg}%` }} />);
+  colEls.push(<col key="price" style={{ width: `${WIDTHS_PERCENT.price}%` }} />);
+  colEls.push(<col key="supplier" style={{ width: `${WIDTHS_PERCENT.supplier}%` }} />);
+  colEls.push(<col key="pdate" style={{ width: `${WIDTHS_PERCENT.pdate}%` }} />);
+  colEls.push(<col key="mfr" style={{ width: `${WIDTHS_PERCENT.mfr}%` }} />);
+  colEls.push(<col key="url" style={{ width: `${WIDTHS_PERCENT.url}%` }} />);
+  colEls.push(<col key="memo" style={{ width: `${WIDTHS_PERCENT.memo}%` }} />);
+  colEls.push(<col key="updated" style={{ width: `${WIDTHS_PERCENT.updated}%` }} />);
+  if (inlineEdit) colEls.push(<col key="save" style={{ width: 90 }} />);
+
+  // ListView 함수 시작 부분 바로 아래에 추가
+  const [hoverRow, setHoverRow] = useState(null);
+
+  const [showAdjModal, setShowAdjModal] = useState(false);
+  const [adjMode, setAdjMode] = useState('in'); // 'in' | 'out'
+  const [adjPart, setAdjPart] = useState(null);
+  const [adjValue, setAdjValue] = useState(1);
+
+  // 모달 열기
+  const openAdjustModal = (part, mode) => {
+    setAdjMode(mode);
+    setAdjPart(part);
+    setAdjValue(1);
+    setShowAdjModal(true);
+  };
+
+  // 모달 확정 처리: 서버에 PUT, 성공 시 UI 동기화
+  const handleConfirmAdjust = async () => {
+    if (!adjPart) return;
+    const baseQty = Number(adjPart.quantity ?? 0);
+    const delta = adjMode === 'in' ? Number(adjValue) : -Number(adjValue);
+    if (!Number.isFinite(delta) || delta === 0) {
+      alert("조정 수량을 올바르게 입력하세요.");
+      return;
+    }
+    const nextQty = baseQty + delta;
+    if (nextQty < 0) {
+      alert("출고 수량이 재고를 초과합니다.");
+      return;
+    }
+
+    try {
+      // 서버에 즉시 반영 (PUT /api/parts/:id)
+      const payload = { quantity: nextQty }; // 필요한 경우 memo 같은 필드도 함께 보낼 수 있음
+      const res = await fetch(`${SERVER_URL}/api/parts/${adjPart.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`PUT ${res.status} - ${text}`);
+      }
+
+      // UI 즉시 반영
+      onFieldChange(adjPart.id, "quantity", nextQty);
+
+      setShowAdjModal(false);
+    } catch (e) {
+      console.error(e);
+      alert(`수량 조정 실패: ${e.message}`);
+    }
+  };
+
   return (
-    <Table striped bordered hover size="sm" responsive>
+    <Table
+      striped
+      bordered
+      hover
+      size="sm"
+      responsive
+      // fixed여야 퍼센트 폭+ellipsis가 안정적으로 적용
+      style={{ tableLayout: 'fixed', width: '100%' }}
+    >
+      <colgroup>{colEls}</colgroup>
+
       <thead>
         <tr>
-          {deleteMode && <th style={{ width: 56 }}>선택</th>}
+          {deleteMode && <th>선택</th>}
           <th>품명</th>
-          <th style={{ width: 90 }}>수량</th>
-          <th style={{ width: 120 }}>위치</th>
+          <th>수량</th>
+          <th>위치</th>
           <th>설명</th>
-          <th style={{ width: 120 }}>수정일</th>
-          {inlineEdit && <th style={{ width: 90 }}>저장</th>}
+          <th>Type</th>
+          <th>패키지</th>
+          <th>가격</th>
+          <th>공급업체</th>
+          <th>구매일</th>
+          <th>제조사</th>
+          <th>URL</th>
+          <th>Memo</th>
+          <th>수정일</th>
+          {inlineEdit && <th>저장</th>}
         </tr>
       </thead>
+
       <tbody>
         {parts.map((part) => {
           const saving = savingIds?.has?.(part.id);
+
           return (
             <tr
               key={part.id}
@@ -184,7 +304,7 @@ const ListView = ({
               onClick={() => { if (!inlineEdit) navigate(`/partDetail/${part.id}`); }}
             >
               {deleteMode && (
-                <td onClick={(e) => e.stopPropagation()}>
+                <td style={tdEllipsis} onClick={(e) => e.stopPropagation()}>
                   <Form.Check
                     type="checkbox"
                     checked={selectedIds.includes(part.id)}
@@ -198,71 +318,206 @@ const ListView = ({
                 </td>
               )}
 
-              {/* 품명 */}
-              <td title={part.part_name} onClick={(e) => inlineEdit && e.stopPropagation()}>
+              {/* 품명(10%) */}
+              <td style={tdEllipsis} title={part.part_name} onClick={stop}>
                 {inlineEdit ? (
                   <Form.Control
                     size="sm"
                     value={part.part_name || ""}
                     onChange={(e) => onFieldChange(part.id, "part_name", e.target.value)}
+                    style={inputEllipsis}
                   />
-                ) : (
-                  part.part_name
-                )}
+                ) : part.part_name}
               </td>
 
-              {/* 수량 */}
-              <td onClick={(e) => inlineEdit && e.stopPropagation()}>
-                {inlineEdit ? (
-                  <Form.Control
-                    size="sm"
-                    type="number"
-                    value={part.quantity ?? 0}
-                    onChange={(e) => onFieldChange(part.id, "quantity", Number(e.target.value))}
-                  />
-                ) : (
-                  part.quantity ?? 0
-                )}
+              {/* 수량(5%) */}
+              <td
+                style={tdEllipsis}
+                onMouseEnter={() => setHoverRow(part.id)}
+                onMouseLeave={() => setHoverRow(null)}
+                onClick={stop}
+              >
+                <div style={{ position: 'relative' }}>
+                  {inlineEdit ? (
+                    <Form.Control
+                      size="sm"
+                      type="number"
+                      value={part.quantity ?? 0}
+                      onChange={(e) => onFieldChange(part.id, "quantity", Number(e.target.value))}
+                      style={inputEllipsis}
+                    />
+                  ) : (
+                    <span>{part.quantity ?? 0}</span>
+                  )}
+
+                  {/* hover 액션 버튼 (보기모드에서만 표시) */}
+                  {!inlineEdit && hoverRow === part.id && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        right: 0,
+                        display: 'flex',
+                        gap: 4,
+                        background: 'rgba(255,255,255,0.9)',
+                        borderRadius: 4,
+                      }}
+                    >
+                      <Button
+                        size="sm"
+                        variant="outline-success"
+                        onClick={(e) => { e.stopPropagation(); openAdjustModal(part, 'in'); }}
+                        style={{ height: 24, lineHeight: "20px", padding: "0 6px" }}
+                      >
+                        입고
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline-warning"
+                        onClick={(e) => { e.stopPropagation(); openAdjustModal(part, 'out'); }}
+                        style={{ height: 24, lineHeight: "20px", padding: "0 6px" }}
+                      >
+                        출고
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </td>
 
-              {/* 위치 */}
-              <td onClick={(e) => inlineEdit && e.stopPropagation()}>
+              {/* 위치(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
                 {inlineEdit ? (
                   <Form.Control
                     size="sm"
                     value={part.location || ""}
                     onChange={(e) => onFieldChange(part.id, "location", e.target.value)}
+                    style={inputEllipsis}
                   />
-                ) : (
-                  part.location ?? '-'
-                )}
+                ) : (part.location ?? '-')}
               </td>
 
-              {/* 설명 */}
-              <td className="text-truncate" style={{ maxWidth: 480 }} title={part.description || ''} onClick={(e) => inlineEdit && e.stopPropagation()}>
+              {/* 설명(15%) */}
+              <td style={tdEllipsis} title={part.description || ''} onClick={stop}>
                 {inlineEdit ? (
                   <Form.Control
                     size="sm"
                     value={part.description || ""}
                     onChange={(e) => onFieldChange(part.id, "description", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.description || '-')}
+              </td>
+
+              {/* Type(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm"
+                    value={part.mounting_type || ""}
+                    onChange={(e) => onFieldChange(part.id, "type", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.mounting_type || '-')}
+              </td>
+
+              {/* 패키지(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm"
+                    value={part.package || ""}
+                    onChange={(e) => onFieldChange(part.id, "package", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.package || '-')}
+              </td>
+
+              {/* 가격(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm" type="number" step="0.01"
+                    value={part.price ?? ""}
+                    onChange={(e) => onFieldChange(part.id, "price", e.target.value)}
+                    style={inputEllipsis}
                   />
                 ) : (
-                  part.description || '-'
+                  part.price === null || part.price === undefined ? '-' : Number(part.price).toFixed(2)
                 )}
               </td>
 
-              {/* 수정일 */}
-              <td>{part.update_date ? part.update_date.split(' ')[0] : '-'}</td>
-
-              {/* 저장 버튼(행 단위) */}
-              {inlineEdit && (
-                <td onClick={(e) => e.stopPropagation()}>
-                  <Button
+              {/* 공급업체(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
                     size="sm"
-                    variant="outline-primary"
-                    disabled={saving}
-                    onClick={() => onSaveRow(part.id)}
-                  >
+                    value={part.supplier || ""}
+                    onChange={(e) => onFieldChange(part.id, "supplier", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.supplier || '-')}
+              </td>
+
+              {/* 구매일(10%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm" type="date"
+                    value={dateToInput(part.purchase_date)}
+                    onChange={(e) => onFieldChange(part.id, "purchase_date", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (dateToInput(part.purchase_date) || '-')}
+              </td>
+
+              {/* 제조사(5%) */}
+              <td style={tdEllipsis} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm"
+                    value={part.manufacturer || ""}
+                    onChange={(e) => onFieldChange(part.id, "manufacturer", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.manufacturer || '-')}
+              </td>
+
+              {/* URL(15%) */}
+              <td style={tdEllipsis} title={part.purchase_url || ''} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm"
+                    value={part.purchase_url || ""}
+                    onChange={(e) => onFieldChange(part.id, "purchase_url", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (
+                  part.purchase_url
+                    ? <a href={part.purchase_url} target="_blank" rel="noreferrer" style={{ ...tdEllipsis, display: 'inline-block', maxWidth: '100%' }}>{part.purchase_url}</a>
+                    : '-'
+                )}
+              </td>
+
+              {/* Memo(10%) */}
+              <td style={tdEllipsis} title={part.memo || ''} onClick={stop}>
+                {inlineEdit ? (
+                  <Form.Control
+                    size="sm"
+                    value={part.memo || ""}
+                    onChange={(e) => onFieldChange(part.id, "memo", e.target.value)}
+                    style={inputEllipsis}
+                  />
+                ) : (part.memo || '-')}
+              </td>
+
+              {/* 수정일(5%) */}
+              <td style={tdEllipsis}>
+                {part.update_date ? part.update_date.split(' ')[0] : '-'}
+              </td>
+
+              {inlineEdit && (
+                <td style={tdEllipsis} onClick={(e) => e.stopPropagation()}>
+                  <Button size="sm" variant="outline-primary" disabled={saving} onClick={() => onSaveRow(part.id)}>
                     {saving ? "..." : <MdSave />}
                   </Button>
                 </td>
@@ -271,6 +526,42 @@ const ListView = ({
           );
         })}
       </tbody>
+      <Modal show={showAdjModal} onHide={() => setShowAdjModal(false)} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>
+            {adjMode === 'in' ? '입고' : '출고'} — {adjPart?.part_name ?? '부품'}
+          </Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label>조정 수량</Form.Label>
+              <Form.Control
+                type="number"
+                min={1}
+                step={1}
+                value={adjValue}
+                onChange={(e) => setAdjValue(Number(e.target.value))}
+                placeholder="숫자 입력"
+              />
+              <Form.Text muted>
+                현재 재고: {adjPart ? (adjPart.quantity ?? 0) : '-'} →
+                {' '}
+                예상 재고: {adjPart ? (Number(adjPart.quantity ?? 0) + (adjMode === 'in' ? Number(adjValue) : -Number(adjValue))) : '-'}
+              </Form.Text>
+            </Form.Group>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowAdjModal(false)}>취소</Button>
+          <Button
+            variant={adjMode === 'in' ? 'success' : 'warning'}
+            onClick={handleConfirmAdjust}
+          >
+            확인
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Table>
   );
 };
@@ -346,7 +637,35 @@ const PartsPage = () => {
     }));
   };
 
+  // 추가) 편집 모드를 위한 스냅샷 상태 추가
+  const [originalParts, setOriginalParts] = useState({});
+
+  const enterEditMode = () => {
+    setDeleteMode(false);
+    setSelectedIds([]);
+    setInlineEdit(true);
+
+    const snapshot = {};
+    parts.forEach(p => { snapshot[p.id] = { ...p }; });
+    setOriginalParts(snapshot);
+  };
+
   const saveRow = async (id) => {
+    // 확인창 추가
+    const ok = window.confirm("변경 사항을 저장하시겠습니까?");
+    if (!ok) {
+      const orig = originalParts[id];
+      if (orig) {
+        setParts(prev => prev.map(p => (p.id === id ? { ...orig } : p)));
+      }
+      setDirty(prev => {
+        const cp = { ...prev };
+        delete cp[id];
+        return cp;
+      });
+      return;
+    }
+
     const changed = dirty[id];
     if (!changed) return;
 
@@ -381,6 +700,7 @@ const PartsPage = () => {
         delete cp[id];
         return cp;
       });
+      setOriginalParts(prev => ({ ...prev, [id]: { ...merged } }));
     } catch (e) {
       console.error(e);
       alert(`저장 실패(행 ${id}).\n${e.message}`);
@@ -423,12 +743,18 @@ const PartsPage = () => {
 
 
   const saveAll = async () => {
-    if (isSavingAll) return; // 중복 방지
     const ids = Object.keys(dirty);
     if (!ids.length) {
       alert("저장할 변경사항이 없습니다.");
       return;
     }
+
+    const ok = window.confirm(`변경된 ${ids.length}개 행을 저장하시겠습니까?`);
+    if (!ok) {
+      return;
+    }
+
+    if (isSavingAll) return;
 
     try {
       setIsSavingAll(true);
@@ -454,8 +780,6 @@ const PartsPage = () => {
           failMsgs.push(`행 ${id}: ${msg}`);
         }
       });
-
-      // 성공한 것들은 dirty에서 제거
       if (successIds.length) {
         setDirty(prev => {
           const cp = { ...prev };
@@ -463,8 +787,6 @@ const PartsPage = () => {
           return cp;
         });
       }
-
-      // 저장표시 해제
       setSavingIds(prev => {
         const cp = new Set(prev);
         ids.forEach(id => cp.delete(Number(id)));
@@ -490,18 +812,43 @@ const PartsPage = () => {
     }
   };
 
-  // 모드 토글 헬퍼
-  const enterEditMode = () => {
-    setDeleteMode(false);
-    setSelectedIds([]);
-    setInlineEdit(true);
-  };
+  const exitEditMode = async () => {
+    const ids = Object.keys(dirty);
+    if (ids.length === 0) {
+      // 변경된 게 없으면 그냥 나가기
+      setInlineEdit(false);
+      setDirty({});
+      setSavingIds(new Set());
+      fetchParts();
+      return;
+    }
 
-  const exitEditMode = () => {
-    setInlineEdit(false);
-    setDirty({});
-    setSavingIds(new Set());
-    fetchParts()
+    // 변경된 게 있으면 확인
+    const save = window.confirm(`변경된 ${ids.length}개 행이 있습니다. 저장하시겠습니까?`);
+
+    if (save) {
+      try {
+        await saveAll();
+        setInlineEdit(false);
+        setDirty({});
+        setSavingIds(new Set());
+        fetchParts();
+      } catch (e) {
+        console.error(e);
+        alert("저장 중 오류가 발생했습니다. 편집 모드를 유지합니다.");
+      }
+      return;
+    }
+
+    // 저장 안 하겠다고 하면
+    const discard = window.confirm("저장되지 않은 정보는 사라집니다. 정말 종료하시겠습니까?");
+    if (discard) {
+      // 스냅샷 원복이 있으면 그걸 쓰고, 아니면 서버 재조회
+      fetchParts();
+      setInlineEdit(false);
+      setDirty({});
+      setSavingIds(new Set());
+    }
   };
 
   const toggleDeleteMode = () => {
@@ -556,7 +903,18 @@ const PartsPage = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: selectedIds })
     })
-      .then(res => res.json())
+      .then(async (res) => {
+        // 백엔드 메시지 그대로 전달
+        if (!res.ok) {
+          // json이든 text든 그대로 꺼내서 보여줌
+          const ct = res.headers.get('content-type') || '';
+          const body = ct.includes('application/json') ? await res.json() : await res.text();
+          const msg = typeof body === 'string' ? body : (body.error ?? JSON.stringify(body));
+          alert(msg);
+          throw new Error(msg); // 이후 then 체인 중단
+        }
+        return res.json();
+      })
       .then(() => {
         const remaining = filteredParts.length - selectedIds.length;
         const newTotalPages = Math.ceil(remaining / partsPerPage);
@@ -567,7 +925,8 @@ const PartsPage = () => {
         setDeleteMode(false);
         fetchParts();
         fetchCategories();
-      });
+      })
+      .catch(() => { /* alert 이미 했으니 추가 처리 없음 */ });
   };
 
   const handleDeleteAllFiltered = () => {
@@ -580,14 +939,23 @@ const PartsPage = () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: idsToDelete })
     })
-      .then(res => res.json())
+      .then(async (res) => {
+        if (!res.ok) {
+          const ct = res.headers.get('content-type') || '';
+          const body = ct.includes('application/json') ? await res.json() : await res.text();
+          const msg = typeof body === 'string' ? body : (body.error ?? JSON.stringify(body));
+          alert(msg);
+          throw new Error(msg);
+        }
+        return res.json();
+      })
       .then(() => {
         fetchParts();
         setSelectedIds([]);
         setDeleteMode(false);
-      });
+      })
+      .catch(() => { });
   };
-
   // 페이지 번호 계산(… 포함)
   const visiblePageRange = 2;
   const pageNumbers = [];
@@ -624,54 +992,54 @@ const PartsPage = () => {
             </Button>
           ) : (
             <>
-              <Button variant="primary" onClick={saveAll} disabled={!Object.keys(dirty).length}>
-                <MdSave /> 변경사항 저장
-              </Button>
               <Button variant="outline-secondary" onClick={exitEditMode}>
-                <MdOutlineCancel /> 취소
+                <MdOutlineCancel />
+              </Button>
+              <Button variant="primary" onClick={saveAll} disabled={!Object.keys(dirty).length}>
+                변경사항 저장
               </Button>
             </>
           )}
         </Col>
 
-        {deleteMode && (
-          <Col className="d-flex justify-content-center gap-3 align-items-center">
-            <Form.Check
-              type="checkbox"
-              id="select-all"
-              className="mt-1"
-              checked={paginatedParts.length > 0 && paginatedParts.every(p => selectedIds.includes(p.id))}
-              onChange={(e) => toggleSelectAllCurrentPage(e.target.checked)}
-            />
-            <Button variant="danger" onClick={handleDeleteSelected} disabled={selectedIds.length === 0}>
-              선택 삭제
-            </Button>
-            <Button variant="outline-danger" onClick={handleDeleteAllFiltered}>
-              전체 삭제
-            </Button>
-          </Col>
-        )}
-
         <Col xs="auto" className="d-flex gap-2">
+
+          {deleteMode && (
+            <Col className="d-flex justify-content-center gap-3 align-items-center">
+              <Form.Check
+                type="checkbox"
+                id="select-all"
+                className="mt-1"
+                checked={paginatedParts.length > 0 && paginatedParts.every(p => selectedIds.includes(p.id))}
+                onChange={(e) => toggleSelectAllCurrentPage(e.target.checked)}
+              />
+              <Button variant="danger" onClick={handleDeleteSelected} disabled={selectedIds.length === 0}>
+                선택 삭제
+              </Button>
+              <Button variant="outline-danger" onClick={handleDeleteAllFiltered}>
+                전체 삭제
+              </Button>
+            </Col>
+          )}
           <Button
-            variant={deleteMode ? "danger" : "outline-danger"}
+            variant={deleteMode ? "outline-danger" : "danger"}
             onClick={toggleDeleteMode}
             disabled={inlineEdit}
           >
             {deleteMode ? <MdOutlineCancel /> : <FiTrash2 />}
           </Button>
-          <Button onClick={handleOpenModal}><MdOutlineAdd /></Button>
         </Col>
       </Row>
 
       {/* 검색/정렬 */}
       <Row className="g-2 d-flex justify-content-between align-items-center mb-2 border-bottom pb-2">
-        <Col md={8}>
+        <Col className="d-flex flex-row gap-3" md={8}>
           <Form.Control
             placeholder="검색어를 입력하세요"
             value={search}
             onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
           />
+          <Button onClick={handleOpenModal}><MdOutlineAdd /></Button>
         </Col>
         <Col md={3}>
           <InputGroup>
@@ -771,6 +1139,7 @@ const PartsPage = () => {
           fetchParts();
           fetchCategories();
         }}
+        presetName={search}
       />
     </div>
   );

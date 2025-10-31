@@ -4,7 +4,6 @@ CREATE TABLE parts (
   quantity INTEGER DEFAULT 0,
   ordered_quantity INTEGER DEFAULT 0,
   price REAL,
-  value TEXT,
   supplier TEXT,
   purchase_date TEXT,
   purchase_url TEXT,
@@ -75,4 +74,19 @@ CREATE TABLE project_assemblies (
   PRIMARY KEY (project_id, assembly_id),
   FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
   FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
+);
+
+CREATE TABLE aliases (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  alias_name TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE alias_links (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  alias_id   INTEGER NOT NULL,
+  part_id    INTEGER NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (alias_id) REFERENCES aliases(id) ON DELETE CASCADE,
+  FOREIGN KEY (part_id)  REFERENCES parts(id)  ON DELETE CASCADE,
+  UNIQUE(alias_id, part_id)
 );

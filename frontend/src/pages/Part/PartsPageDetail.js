@@ -182,6 +182,7 @@ const PartDetailPage = () => {
       location: editedPart.location ?? part.location ?? "",
       memo: editedPart.memo ?? part.memo ?? "",
       description: editedPart.description ?? part.description ?? "",
+      supplier: editedPart.supplier ?? part.supplier ?? ""
     };
 
     fetch(`${SERVER_URL}/api/parts/${id}`, {
@@ -218,24 +219,32 @@ const PartDetailPage = () => {
 
   // 부품 삭제
   const handleDeleteSingle = (partId) => {
-    if (!window.confirm(`부품 ${partId}를 삭제하시겠습니까?`)) return;
+    if (!window.confirm(`${part.part_name}를 삭제하시겠습니까?`)) return;
 
     fetch(`${SERVER_URL}/api/parts`, {
       method: "DELETE",
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids: [partId] })
     })
-      .then(res => {
-        if (!res.ok) throw new Error(`삭제 실패: ${res.status}`);
-        return res.json();
+      .then(async (res) => {
+        // 서버가 보내준 본문 먼저 읽기
+        const body = await res.json();
+
+        if (!res.ok) {
+          // 에러일 때 백엔드의 메시지를 그대로 띄우기
+          alert(body.error || JSON.stringify(body));
+          throw new Error(body.error || '삭제 실패');
+        }
+
+        // 정상일 때 body 그대로 리턴
+        return body;
       })
       .then(() => {
         alert("부품이 삭제되었습니다.");
         navigate('/partsPage');
       })
       .catch((err) => {
-        console.error("삭제 중 오류:", err);
-        alert("삭제 중 오류가 발생했습니다.");
+        console.error(err);
       });
   };
 
@@ -311,7 +320,7 @@ const PartDetailPage = () => {
 
                 {isEditing && (
                   <div className="image-upload-overlay" onClick={handleUploadClick}>
-                    <FiUpload size={28} className="upload-icon" />
+                    <Button>이미지 수정</Button>
                   </div>
                 )}
 
@@ -326,157 +335,38 @@ const PartDetailPage = () => {
             </Col>
 
             <Col md={9}>
-              <ListGroup variant="flush">
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>부품명</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="text"
-                      value={editedPart.part_name || ""}
-                      onChange={(e) => onChangeField("part_name", e.target.value)}
-                      style={{ maxWidth: "200px" }}
-                    />
-                  ) : (
-                    <span>{part.part_name || "-"}</span>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>보관 위치</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="text"
-                      value={editedPart.location || ""}
-                      onChange={(e) => onChangeField("location", e.target.value)}
-                      style={{ maxWidth: "200px" }}
-                    />
-                  ) : (
-                    <Badge bg="primary" className="me-1">{part.location || "-"}</Badge>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>패키지</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="text"
-                      value={editedPart.package || ""}
-                      onChange={(e) => onChangeField("package", e.target.value)}
-                      style={{ maxWidth: "200px" }}
-                    />
-                  ) : (
-                    <span>{part.package || "-"}</span>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>value</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="text"
-                      value={editedPart.value || ""}
-                      onChange={(e) => onChangeField("value", e.target.value)}
-                      style={{ maxWidth: "200px" }}
-                    />
-                  ) : (
-                    <span>{part.value || "-"}</span>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>가격</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="number"
-                      value={editedPart.price || ""}
-                      onChange={(e) => onChangeField("price", e.target.value)}
-                      style={{ maxWidth: "120px" }}
-                    />
-                  ) : (
-                    <span>{part.price ? `${part.price}원` : "-"}</span>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>수량</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="number"
-                      value={editedPart.quantity || ""}
-                      onChange={(e) => onChangeField("quantity", e.target.value)}
-                      style={{ maxWidth: "100px" }}
-                    />
-                  ) : (
-                    <span>{part.quantity ?? "-"}</span>
-                  )}
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>총 주문 수량</strong>
-                  <span>{part.ordered_quantity ?? "-"}</span>
-                </ListGroup.Item>
-
-                <ListGroup.Item className="d-flex justify-content-between align-items-center px-0">
-                  <strong>구매 링크</strong>
-                  {isEditing ? (
-                    <Form.Control
-                      size="sm"
-                      type="text"
-                      value={editedPart.purchase_url || ""}
-                      onChange={(e) => onChangeField("purchase_url", e.target.value)}
-                      style={{ maxWidth: "300px" }}
-                    />
-                  ) : (
-                    part.purchase_url ? (
-                      <a href={part.purchase_url} target="_blank" rel="noopener noreferrer">
-                        {part.purchase_url}
-                      </a>
-                    ) : (
-                      <span>-</span>
-                    )
-                  )}
-                </ListGroup.Item>
-              </ListGroup>
+              {isEditing ? (
+                <div></div>
+              ) : (
+                <Col>
+                  {deliveryOrders.map(order => (
+                    <Card className="mt-3" key={order.id}>
+                      <Card.Body className="d-flex justify-content-between align-items-center">
+                        <div>
+                          <strong>날짜:</strong> {order.order_date} &nbsp;
+                          <strong>수량:</strong> {order.quantity_ordered}
+                        </div>
+                        <Button
+                          variant="outline-success"
+                          size="sm"
+                          onClick={() => {
+                            if (!window.confirm("배송을 완료 처리하시겠습니까?")) return;
+                            fulfillOrder(order.id, order.quantity_ordered);
+                          }}
+                        >
+                          배송 완료
+                        </Button>
+                      </Card.Body>
+                    </Card>
+                  ))}
+                  <div className='d-flex flex-row-reverse mt-3'>
+                    <Button variant="outline-primary" onClick={() => setShowOrderModal(true)}>
+                      발주하기
+                    </Button>
+                  </div>
+                </Col>
+              )}
             </Col>
-          </Row>
-          <Row>
-            {isEditing ? (
-              <div></div>
-            ) : (
-              <Col>
-                {deliveryOrders.map(order => (
-                  <Card className="mt-3" key={order.id}>
-                    <Card.Body className="d-flex justify-content-between align-items-center">
-                      <div>
-                        <strong>날짜:</strong> {order.order_date} &nbsp;
-                        <strong>수량:</strong> {order.quantity_ordered}
-                      </div>
-                      <Button
-                        variant="outline-success"
-                        size="sm"
-                        onClick={() => {
-                          if (!window.confirm("배송을 완료 처리하시겠습니까?")) return;
-                          fulfillOrder(order.id, order.quantity_ordered);
-                        }}
-                      >
-                        배송 완료
-                      </Button>
-                    </Card.Body>
-                  </Card>
-                ))}
-                <div className='d-flex flex-row-reverse mt-3'>
-                  <Button variant="outline-primary" onClick={() => setShowOrderModal(true)}>
-                    발주하기
-                  </Button>
-                </div>
-              </Col>
-            )}
           </Row>
         </Card.Body>
       </Card>
@@ -485,13 +375,21 @@ const PartDetailPage = () => {
         <Card.Body className="p-0">
           <Table striped bordered hover responsive className="mb-0 shadow-sm rounded table-custom">
             <tbody>
+              {renderRow("품명", "part_name")}
+              {renderRow("수량", "quantity")}
+              {renderRow("가격", "price")}
+              {renderRow("공급업체", "supplier")}
+              {renderRow("위치", "location")}
+              {renderRow("설명", "description", true)}
+              {renderRow("제조사", "manufacturer")}
+              {renderRow("Type", "mounting_type")}
+              {renderRow("패키지", "package")}
+              {renderRow("URL", "purchase_url")}
+              {renderRow("Memo", "memo", true)}
+
               {renderRow("대분류", "category_large")}
               {renderRow("중분류", "category_medium")}
               {renderRow("소분류", "category_small")}
-              {renderRow("제조사", "manufacturer")}
-              {renderRow("장착 타입", "mounting_type")}
-              {renderRow("메모", "memo", true)}
-              {renderRow("설명", "description", true)}
               <tr>
                 <th>등록일</th>
                 <td>{formatDate(part.create_date)}</td>

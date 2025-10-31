@@ -301,7 +301,6 @@ def get_all_project_parts(project_id):
         traceback.print_exc()
         return jsonify({'error': 'Failed to fetch parts for project'}), 500
 
-# ------------------ 어셈블리 업데이트(인라인 편집용) ------------------
 @projects_bp.route('/api/assemblies/<int:assembly_id>/update', methods=['PUT'])
 def update_assembly(assembly_id):
     """
@@ -408,3 +407,71 @@ def update_project_full(project_id):
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+    
+# ------------------ 대시보드 전용 API ------------------
+
+@projects_bp.route('/api/assemblies/low_stock', methods=['GET'])
+def get_low_stock_assemblies():
+    """
+    '재고 부족 pcb' 카드용.
+    아이디어: 어셈블리별 필요 총량 대비 현재 재고(또는 할당) 수준으로 부족도를 계산.
+    - allocation_percent: (할당량 / 필요총량)*100 으로 가정.
+      필요총량 = SUM(ap.quantity_per * a.quantity_to_build)
+      할당량   = SUM(ap.allocated_quantity)
+    """
+    try:
+        db = get_db()
+        rows = db.execute("""
+            SELECT 
+              a.id,
+              a.assembly_name,
+              a.quantity_to_build,
+              a.status,
+              -- 필요 총량
+              SUM(ap.quantity_per * a.quantity_to_build) AS total_required,
+              -- 현재 할당량(없으면 0)
+              COALESCE(SUM(ap.allocated_quantity), 0)    AS allocated_quantity,
+              -- % 계산(0으로 나눔 방지)
+              CASE 
+                WHEN SUM(ap.quantity_per * a.quantity_to_build) > 0 
+                THEN 100.0 * COALESCE(SUM(ap.allocated_quantity), 0) 
+                          / SUM(ap.quantity_per * a.quantity_to_build)
+                ELSE 0
+              END AS allocation_percent
+            FROM assemblies a
+            JOIN assembly_parts ap ON a.id = ap.assembly_id
+            GROUP BY a.id, a.assembly_name, a.quantity_to_build, a.status
+            HAVING allocation_percent < 100.0
+            ORDER BY allocation_percent ASC, a.id DESC
+        """).fetchall()
+
+        return jsonify([dict(r) for r in rows]), 200
+    except Exception:
+        traceback.print_exc()
+        return jsonify({'error': 'Failed to fetch low stock assemblies'}), 500
+    
+@projects_bp.route('/api/part_orders/recent', methods=['GET'])
+def get_recent_part_orders():
+    try:
+        db = get_db()
+        rows = db.execute("""
+            SELECT 
+              po.id,
+              po.part_id,
+              p.part_name,
+              po.quantity_ordered,
+              po.order_date,
+              NULL AS expected_date,
+              ''   AS status
+            FROM part_orders po
+            JOIN parts p ON p.id = po.part_id
+            -- order_date는 TEXT라서 ISO 형식(YYYY-MM-DD HH:MM:SS)이면 문자열 정렬로도 최신순 보장
+            ORDER BY po.order_date DESC, po.id DESC
+            LIMIT 50
+        """).fetchall()
+        return jsonify([dict(r) for r in rows]), 200
+    except Exception:
+        import traceback; traceback.print_exc()
+        return jsonify({'error': 'Failed to fetch recent part orders'}), 500
+
+

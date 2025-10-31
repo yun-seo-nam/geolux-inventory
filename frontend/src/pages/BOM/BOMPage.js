@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Row, Col, Form, Card, Pagination, Button, InputGroup, Modal, Badge } from 'react-bootstrap';
+import { Row, Col, Form, Card, Pagination, Button, InputGroup, Modal, Badge, Table } from 'react-bootstrap';
 import { FiGrid, FiList, FiTrash2 } from 'react-icons/fi';
 import { MdOutlineAdd, MdOutlineCancel } from "react-icons/md";
 
@@ -255,40 +255,40 @@ const BOMPage = () => {
             </Button>
           </InputGroup>
         </Col>
-        {deleteMode && (
-          <Col className="d-flex justify-content-center gap-3">
-            {deleteMode && (
-              <Form.Check
-                type="checkbox"
-                id="select-all"
-                className="mt-2"
-                checked={paginatedAssemblies.every(p => selectedIds.includes(p.id))}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  const currentPageIds = paginatedAssemblies.map(p => p.id);
-                  setSelectedIds(prev =>
-                    checked
-                      ? Array.from(new Set([...prev, ...currentPageIds]))
-                      : prev.filter(id => !currentPageIds.includes(id))
-                  );
-                }}
-              />
-            )}
-            <Button
-              variant="danger"
-              onClick={handleDeleteSelected}
-              disabled={selectedIds.length === 0}
-            >
-              선택 삭제
-            </Button>
-            <Button
-              variant="outline-danger"
-              onClick={handleDeleteAllFiltered}>
-              전체 삭제
-            </Button>
-          </Col>
-        )}
-        <Col xs="auto" className="d-flex gap-2 justify-content-end">
+        <Col xs="auto" className="d-flex gap-2">
+          {deleteMode && (
+            <Col className="d-flex justify-content-center gap-3 align-items-center">
+              {deleteMode && (
+                <Form.Check
+                  type="checkbox"
+                  id="select-all"
+                  className="mt-2"
+                  checked={paginatedAssemblies.every(p => selectedIds.includes(p.id))}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    const currentPageIds = paginatedAssemblies.map(p => p.id);
+                    setSelectedIds(prev =>
+                      checked
+                        ? Array.from(new Set([...prev, ...currentPageIds]))
+                        : prev.filter(id => !currentPageIds.includes(id))
+                    );
+                  }}
+                />
+              )}
+              <Button
+                variant="danger"
+                onClick={handleDeleteSelected}
+                disabled={selectedIds.length === 0}
+              >
+                선택 삭제
+              </Button>
+              <Button
+                variant="outline-danger"
+                onClick={handleDeleteAllFiltered}>
+                전체 삭제
+              </Button>
+            </Col>
+          )}
           <Button
             variant={deleteMode ? "danger" : "danger"}
             onClick={() => {
@@ -361,45 +361,156 @@ const BOMPage = () => {
         </Col>
       </Row>
 
-      <div
-        className="d-flex flex-wrap mt-4"
-        style={{
-          gap: '12px',
-          justifyContent: 'flex-start',
-          flexDirection: viewMode === 'grid' ? 'row' : 'column',
-        }}>
-        {paginatedAssemblies.map(asm => {
-          let statusText = asm.status || 'Planned';
-          let statusColor = {
-            'Planned': 'secondary',
-            'In Progress': 'info',
-            'Completed': 'success'
-          }[statusText] || 'secondary';
+      {viewMode === 'list' ? (
+        <Table
+          striped
+          bordered
+          hover
+          size="sm"
+          responsive
+          style={{
+            tableLayout: 'fixed',
+            width: '100%',
+            borderRadius: '8px',
+            overflow: 'hidden',
+          }}
+        >
+          <thead>
+            <tr>
+              {deleteMode && <th style={{ width: '60px' }}>선택</th>}
+              <th className="text-center" style={{ width: '80px' }}>이미지</th>
+              <th className="text-center">이름</th>
+              <th className="text-center" style={{ width: '80px' }}>수량</th>
+              <th className="text-center" style={{ width: '120px' }}>상태</th>
+              <th className="text-center" style={{ width: '110px' }}>수정일</th>
+            </tr>
+          </thead>
 
-          return (
-            <Card
-              key={asm.id}
-              style={{
-                width: viewMode === 'grid' ? '220px' : '100%',
-                height: viewMode === 'grid' ? '210px' : 'auto',
-                maxWidth: '100%',
-              }}
-            >
-              <Badge
-                bg={statusColor}
+          <tbody>
+            {paginatedAssemblies.map(asm => {
+              const statusText = asm.status || 'Planned';
+              const statusColor = {
+                'Planned': 'secondary',
+                'In Progress': 'info',
+                'Completed': 'success'
+              }[statusText] || 'secondary';
+
+              return (
+                <tr
+                  key={asm.id}
+                  onClick={() => navigate(`/buildDetail/${asm.id}`)}
+                  style={{
+                    cursor: 'pointer',
+                    verticalAlign: 'middle',
+                  }}
+                >
+                  {deleteMode && (
+                    <td
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-center"
+                    >
+                      <Form.Check
+                        type="checkbox"
+                        checked={selectedIds.includes(asm.id)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setSelectedIds(prev =>
+                            checked
+                              ? [...prev, asm.id]
+                              : prev.filter(id => id !== asm.id)
+                          );
+                        }}
+                      />
+                    </td>
+                  )}
+
+                  {/* 이미지 */}
+                  <td className="text-center" style={{ padding: '6px' }}>
+                    <img
+                      src={getImageSrc(asm.image_url)}
+                      alt={asm.assembly_name}
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        objectFit: 'contain',
+                        background: '#f8f9fa',
+                        borderRadius: '6px',
+                      }}
+                    />
+                  </td>
+
+                  {/* 이름 */}
+                  <td
+                    title={asm.assembly_name}
+                    style={{
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      maxWidth: '240px',
+                      fontWeight: 500,
+                    }}
+                  >
+                    {asm.assembly_name}
+                  </td>
+
+                  {/* 수량 */}
+                  <td className="text-end text-center" style={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {asm.quantity_to_build ?? 0}
+                  </td>
+
+                  {/* 상태 */}
+                  <td className="text-center">
+                    <Badge bg={statusColor}>{statusText}</Badge>
+                  </td>
+
+                  {/* 수정일 */}
+                  <td className="text-center" style={{ color: '#777' }}>
+                    {formatDate(asm.update_date)}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </Table>
+      ) : (
+        /* 기존 grid view 유지 */
+        <div
+          className="d-flex flex-wrap mt-4"
+          style={{
+            gap: '12px',
+            justifyContent: 'flex-start',
+            flexDirection: 'row',
+          }}
+        >
+          {paginatedAssemblies.map(asm => {
+            const statusText = asm.status || 'Planned';
+            const statusColor = {
+              'Planned': 'secondary',
+              'In Progress': 'info',
+              'Completed': 'success'
+            }[statusText] || 'secondary';
+            return (
+              <Card
+                key={asm.id}
                 style={{
-                  position: 'absolute',
-                  top: '8px',
-                  right: '8px',
-                  zIndex: 10,
-                  fontSize: '0.75rem',
-                  padding: '0.35em 0.6em',
+                  width: '220px',
+                  height: '210px',
+                  maxWidth: '100%',
                 }}
               >
-                {statusText}
-              </Badge>
-
-              {viewMode === 'grid' && (
+                <Badge
+                  bg={statusColor}
+                  style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    zIndex: 10,
+                    fontSize: '0.75rem',
+                    padding: '0.35em 0.6em',
+                  }}
+                >
+                  {statusText}
+                </Badge>
                 <div className="d-flex justify-content-center">
                   <Card.Img
                     variant="top"
@@ -417,41 +528,36 @@ const BOMPage = () => {
                     onClick={() => navigate(`/buildDetail/${asm.id}`)}
                   />
                 </div>
-              )}
-
-              <Card.Body className="px-3 py-2">
-                <div className="d-flex justify-content-between align-items-center">
-                  <div
-                    title={asm.part_name}
-                    className="fw-bold mb-0 text-truncate"
-                    style={{
-                      fontSize: '1rem',
-                      cursor: 'pointer',
-                      flexGrow: 1,
-                      marginRight: '10px',
-                      maxWidth: '200px',
-                    }}
-                    onClick={() => navigate(`/buildDetail/${asm.id}`)}
-                  >
-                    {asm.assembly_name}
+                <Card.Body className="px-3 py-2">
+                  <div className="d-flex justify-content-between align-items-center">
+                    <div
+                      className="fw-bold mb-0 text-truncate"
+                      style={{
+                        fontSize: '1rem',
+                        cursor: 'pointer',
+                        flexGrow: 1,
+                        marginRight: '10px',
+                      }}
+                    >
+                      {asm.assembly_name}
+                    </div>
+                    <div>
+                      <Card.Text className="mb-0" style={{ fontSize: '0.9rem', color: '#666', whiteSpace: 'nowrap' }}>
+                        {asm.quantity_to_build ?? 0}개
+                      </Card.Text>
+                    </div>
                   </div>
-                  <div>
-                    <Card.Text className="mb-0" style={{ fontSize: '0.9rem', color: '#666', whiteSpace: 'nowrap' }}>
-                      {asm.quantity_to_build ?? 0}개
+                  <div className="mb-1 d-flex flex-row-reverse">
+                    <Card.Text className="mb-0" style={{ fontSize: '0.8rem', color: '#666', whiteSpace: 'nowrap' }}>
+                      {formatDate(asm.update_date)}
                     </Card.Text>
                   </div>
-                </div>
-
-                <div className="mb-1 d-flex flex-row-reverse">
-                  <Card.Text className="mb-0" style={{ fontSize: '0.8rem', color: '#666', whiteSpace: 'nowrap' }}>
-                    {formatDate(asm.update_date)}
-                  </Card.Text>
-                </div>
-              </Card.Body>
-            </Card>
-          );
-        })}
-      </div>
+                </Card.Body>
+              </Card>
+            );
+          })}
+        </div>
+      )}
 
       {
         totalPages > 1 && (
