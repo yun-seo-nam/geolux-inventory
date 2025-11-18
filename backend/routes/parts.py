@@ -668,15 +668,27 @@ def update_part_full(part_id):
         import traceback; traceback.print_exc()
         return jsonify({"error": str(e)}), 500
     
-# ===== alias APIs =====
-from flask import Blueprint, request, jsonify
+# ===== alias APIs (리팩토링 버전, parts.py 내장 get_db 사용) =====
+from contextlib import contextmanager
+
 aliases_bp = Blueprint("aliases", __name__)
 
-def _norm_name(s: str) -> str:
-    return (s or "").strip().upper()
+@contextmanager
+def db_conn():
+    """자동으로 close/commit 되는 DB context manager"""
+    conn = get_db()  
+    conn.execute("PRAGMA foreign_keys=ON")
+    try:
+        yield conn
+    finally:
+        conn.close()
 
-# 1) alias 검색 (대소문자 무시, 매핑수 포함, 페이징)
-# GET /api/aliases/search?q=&limit=100&offset=0
+def _norm_name(s: str) -> str:
+    return (s or "").strip()
+
+# ==============================
+# 1) alias 검색 (페이징 + 매핑수 + 전체 개수)
+# ==============================
 @aliases_bp.route("/api/aliases/search", methods=["GET"])
 def search_alias():
     q = _norm_name(request.args.get("q", ""))
@@ -684,54 +696,42 @@ def search_alias():
     offset = int(request.args.get("offset", 0))
     like = f"%{q}%" if q else "%"
 
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
-    rows = conn.execute(
-        """
-        SELECT a.id, a.alias_name,
-               COUNT(al.id) AS mapped_count
-        FROM aliases a
-        LEFT JOIN alias_links al ON al.alias_id = a.id
-        WHERE UPPER(a.alias_name) LIKE ?
-        GROUP BY a.id
-        ORDER BY a.alias_name ASC
-        LIMIT ? OFFSET ?
-        """,
-        (like, limit, offset)
-    ).fetchall()
-    conn.close()
+    with db_conn() as conn:
+        rows = conn.execute("""
+            SELECT a.id, a.alias_name,
+                   COUNT(al.id) AS mapped_count,
+                   COUNT(*) OVER() AS total_count   
+            FROM aliases a
+            LEFT JOIN alias_links al ON al.alias_id = a.id
+            WHERE UPPER(a.alias_name) LIKE ?
+            GROUP BY a.id
+            ORDER BY a.alias_name ASC
+            LIMIT ? OFFSET ?
+        """, (like, limit, offset)).fetchall()
     return jsonify([dict(r) for r in rows])
 
+# ==============================
 # 2) alias에 연결된 부품 조회
-# GET /api/aliases/<alias_id>/links
+# ==============================
 @aliases_bp.route("/api/aliases/<int:alias_id>/links", methods=["GET"])
 def get_alias_links(alias_id):
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
+    with db_conn() as conn:
+        alias = conn.execute("SELECT id, alias_name FROM aliases WHERE id=?", (alias_id,)).fetchone()
+        if not alias:
+            return jsonify({"error": "Alias not found"}), 404
 
-    alias = conn.execute("SELECT id, alias_name FROM aliases WHERE id=?", (alias_id,)).fetchone()
-    if not alias:
-        conn.close()
-        return jsonify({"error": "Alias not found"}), 404
-
-    rows = conn.execute(
-        """
-        SELECT al.id AS id,       -- link_id
-               al.part_id,
-               p.part_name,
-               p.quantity
-        FROM alias_links al
-        JOIN parts p ON p.id = al.part_id
-        WHERE al.alias_id = ?
-        ORDER BY p.part_name ASC
-        """,
-        (alias_id,)
-    ).fetchall()
-    conn.close()
+        rows = conn.execute("""
+            SELECT al.id AS id, al.part_id, p.part_name, p.quantity
+            FROM alias_links al
+            JOIN parts p ON p.id = al.part_id
+            WHERE al.alias_id = ?
+            ORDER BY p.part_name ASC
+        """, (alias_id,)).fetchall()
     return jsonify([dict(r) for r in rows])
 
+# ==============================
 # 3) alias 추가
-# POST /api/aliases { alias_name }
+# ==============================
 @aliases_bp.route("/api/aliases", methods=["POST"])
 def create_alias():
     data = request.get_json(silent=True) or {}
@@ -739,20 +739,19 @@ def create_alias():
     if not alias_name:
         return jsonify({"error": "alias_name은 필수입니다."}), 400
 
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        cur = conn.execute("INSERT INTO aliases(alias_name) VALUES (?)", (alias_name,))
-        conn.commit()
+    with db_conn() as conn:
+        try:
+            cur = conn.execute("INSERT INTO aliases(alias_name) VALUES (?)", (alias_name,))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "이미 존재하는 alias_name입니다."}), 409
+
         new_id = cur.lastrowid
-    except sqlite3.IntegrityError:
-        conn.close()
-        return jsonify({"error": "이미 존재하는 alias_name입니다."}), 409
-    conn.close()
     return jsonify({"id": new_id, "alias_name": alias_name}), 201
 
-# 4) alias link 추가
-# POST /api/aliases/<alias_id>/links { part_id }
+# ==============================
+# 4) alias link 추가 (최대 최적화된 버전)
+# ==============================
 @aliases_bp.route("/api/aliases/<int:alias_id>/links", methods=["POST"])
 def create_alias_link(alias_id):
     data = request.get_json(silent=True) or {}
@@ -760,80 +759,72 @@ def create_alias_link(alias_id):
     if not part_id:
         return jsonify({"error": "part_id는 필수입니다."}), 400
 
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
+    with db_conn() as conn:
+        row = conn.execute("""
+            SELECT 
+                a.alias_name AS alias_name,
+                p.part_name AS part_name,
+                EXISTS(SELECT 1 FROM aliases WHERE alias_name = p.part_name) AS part_is_alias
+            FROM aliases a
+            JOIN parts p ON p.id = ?
+            WHERE a.id = ?
+        """, (part_id, alias_id)).fetchone()
 
-    # alias와 part 정보 가져오기
-    alias_row = conn.execute("SELECT * FROM aliases WHERE id=?", (alias_id,)).fetchone()
-    part_row = conn.execute("SELECT * FROM parts WHERE id=?", (part_id,)).fetchone()
+        if not row:
+            return jsonify({"error": "Alias 또는 Part가 존재하지 않습니다."}), 404
 
-    # 존재 확인
-    if not alias_row:
-        conn.close()
-        return jsonify({"error": "Alias not found"}), 404
-    if not part_row:
-        conn.close()
-        return jsonify({"error": "Part not found"}), 404
+        if row["alias_name"] == row["part_name"]:
+            return jsonify({"error": "자기 자신(alias)을 하위 링크로 추가할 수 없습니다."}), 400
 
-    # 자기 자신 alias를 링크로 추가하는 경우 방지
-    if alias_row["alias_name"] == part_row["part_name"]:
-        conn.close()
-        return jsonify({"error": "자기 자신(alias)을 하위 링크로 추가할 수 없습니다."}), 400
+        if row["part_is_alias"]:
+            return jsonify({"error": "이미 별칭으로 등록된 부품은 링크로 추가할 수 없습니다."}), 400
 
-    # 이미 별칭으로 등록된 부품(즉, 부품 이름이 다른 alias_name으로 존재하는 경우)
-    if conn.execute("SELECT 1 FROM aliases WHERE alias_name=?", (part_row["part_name"],)).fetchone():
-        conn.close()
-        return jsonify({"error": "이미 별칭으로 등록된 부품은 링크로 추가할 수 없습니다."}), 400
+        try:
+            cur = conn.execute(
+                "INSERT INTO alias_links(alias_id, part_id) VALUES (?, ?)",
+                (alias_id, part_id)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "이미 존재하는 연결입니다."}), 409
 
-    try:
-        cur = conn.execute(
-            "INSERT INTO alias_links(alias_id, part_id) VALUES (?, ?)",
-            (alias_id, part_id)
-        )
-        conn.commit()
-        link_id = cur.lastrowid
-    except sqlite3.IntegrityError:
-        conn.close()
-        return jsonify({"error": "이미 존재하는 연결입니다."}), 409
+        result = conn.execute("""
+            SELECT al.id, al.part_id, p.part_name, p.quantity
+            FROM alias_links al
+            JOIN parts p ON p.id = al.part_id
+            WHERE al.id = ?
+        """, (cur.lastrowid,)).fetchone()
+    return jsonify(dict(result)), 201
 
-    row = conn.execute(
-        """
-        SELECT al.id AS id, al.part_id, p.part_name, p.quantity
-        FROM alias_links al JOIN parts p ON p.id = al.part_id
-        WHERE al.id = ?
-        """,
-        (link_id,)
-    ).fetchone()
-    conn.close()
-    return jsonify(dict(row)), 201
+# ==============================
+# 5) alias 삭제 / link 삭제
+# ==============================
+def _exec_and_check(conn, query, params, not_found_msg):
+    cur = conn.execute(query, params)
+    conn.commit()
+    if cur.rowcount == 0:
+        return jsonify({"error": not_found_msg}), 404
+    return None
 
-# 5) alias 삭제 (연결 포함) / link 단건 삭제
-# DELETE /api/aliases/<alias_id>
 @aliases_bp.route("/api/aliases/<int:alias_id>", methods=["DELETE"])
 def delete_alias(alias_id):
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
-    cur = conn.execute("DELETE FROM aliases WHERE id=?", (alias_id,))
-    conn.commit()
-    conn.close()
-    if cur.rowcount == 0:
-        return jsonify({"error": "Alias not found"}), 404
+    with db_conn() as conn:
+        err = _exec_and_check(conn, "DELETE FROM aliases WHERE id=?", (alias_id,), "Alias not found")
+        if err:
+            return err
     return jsonify({"message": "alias 및 관련 링크 삭제 성공"})
 
-# DELETE /api/aliases/links/<link_id>
 @aliases_bp.route("/api/aliases/links/<int:link_id>", methods=["DELETE"])
 def delete_alias_link(link_id):
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
-    cur = conn.execute("DELETE FROM alias_links WHERE id=?", (link_id,))
-    conn.commit()
-    conn.close()
-    if cur.rowcount == 0:
-        return jsonify({"error": "Link not found"}), 404
+    with db_conn() as conn:
+        err = _exec_and_check(conn, "DELETE FROM alias_links WHERE id=?", (link_id,), "Link not found")
+        if err:
+            return err
     return jsonify({"message": "alias link 삭제 성공"})
 
+# ==============================
 # 6) alias 이름 수정
-# PUT /api/aliases/<alias_id> { alias_name }
+# ==============================
 @aliases_bp.route("/api/aliases/<int:alias_id>", methods=["PUT"])
 def update_alias(alias_id):
     data = request.get_json(silent=True) or {}
@@ -841,19 +832,14 @@ def update_alias(alias_id):
     if not alias_name:
         return jsonify({"error": "alias_name은 필수입니다."}), 400
 
-    conn = get_db()
-    conn.execute("PRAGMA foreign_keys=ON")
-    try:
-        cur = conn.execute(
-            "UPDATE aliases SET alias_name=? WHERE id=?",
-            (alias_name, alias_id)
-        )
-        conn.commit()
-    except sqlite3.IntegrityError:
-        conn.close()
-        return jsonify({"error": "alias_name 중복"}), 409
-    conn.close()
+    with db_conn() as conn:
+        try:
+            cur = conn.execute("UPDATE aliases SET alias_name=? WHERE id=?", (alias_name, alias_id))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            return jsonify({"error": "alias_name 중복"}), 409
 
-    if cur.rowcount == 0:
-        return jsonify({"error": "Alias not found"}), 404
+        if cur.rowcount == 0:
+            return jsonify({"error": "Alias not found"}), 404
+
     return jsonify({"id": alias_id, "alias_name": alias_name, "message": "alias 수정 성공"})

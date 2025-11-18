@@ -45,7 +45,8 @@ CREATE TABLE assemblies (
   work_date DATE,
   work_duration INTEGER,
   is_soldered BOOLEAN,
-  is_tested BOOLEAN
+  is_tested BOOLEAN,
+  description TEXT
 );
 
 CREATE TABLE assembly_parts (
@@ -78,7 +79,7 @@ CREATE TABLE project_assemblies (
 
 CREATE TABLE aliases (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  alias_name TEXT NOT NULL UNIQUE
+  alias_name TEXT NOT NULL UNIQUE COLLATE BINARY
 );
 
 CREATE TABLE alias_links (

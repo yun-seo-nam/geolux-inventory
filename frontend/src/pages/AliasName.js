@@ -201,7 +201,7 @@ export default function AliasManager() {
   // alias 삭제
   const handleDeleteAlias = async () => {
     if (!selId) return;
-    if (!window.confirm("이 alias와 모든 링크를 삭제할까요?")) return;
+    if (!window.confirm("이 대표부품과 모든 링크를 삭제할까요?")) return;
     try {
       await api.deleteAlias(selId);
       setSelId(null); setSelName(""); setLinks([]); setPicks(new Set());
@@ -298,15 +298,14 @@ export default function AliasManager() {
         {/* 좌측: Alias 목록 */}
         <Col md={4}>
           <Card className="shadow-sm mb-3">
-            <Card.Header className="d-flex align-items-center gap-2">
-              <strong>Aliases</strong>
+            <Card.Header className="d-flex align-items-center gap-4">
+              <strong>대표부품</strong>
               <Form.Control
                 size="sm"
                 placeholder="검색(대소문자 무시)"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />
-              <Button size="sm" variant="outline-secondary" onClick={() => refreshList()}><FiRefreshCw /></Button>
             </Card.Header>
             <Card.Body style={{ maxHeight: '70vh', overflowY: 'auto', padding: 0 }}>
               {listLoading && <div className="p-3 text-muted"><Spinner size="sm" /> 불러오는 중…</div>}
@@ -314,7 +313,7 @@ export default function AliasManager() {
               <Table hover size="sm" className="mb-0">
                 <thead className="table-light position-sticky top-0">
                   <tr>
-                    <th className="px-5">Alias</th>
+                    <th className="px-5">대표부품 리스트</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -335,7 +334,7 @@ export default function AliasManager() {
               <div className="position-relative" ref={aliasBoxRef}>
                 <InputGroup size="sm">
                   <Form.Control
-                    placeholder="새 alias"
+                    placeholder="새 대표부품 (New Representative Parts)"
                     value={newAlias}
                     onChange={(e) => { setNewAlias((e.target.value || "").toUpperCase()); setAliasDropdownOpen(true); }}
                     onFocus={() => setAliasDropdownOpen(true)}
@@ -378,7 +377,7 @@ export default function AliasManager() {
           <Card className="shadow-sm mb-3">
             <Card.Header className="d-flex justify-content-between align-items-center">
               <div className="d-flex align-items-center gap-2">
-                <Badge bg="secondary">Alias</Badge>
+                <Badge bg="secondary">대표부품</Badge>
                 {editing ? (
                   <>
                     <Form.Control
@@ -408,7 +407,7 @@ export default function AliasManager() {
               {selId && !detailLoading && (
                 <>
                   <div className="d-flex justify-content-between align-items-center mb-2">
-                    <h6 className="mb-0">연결된 부품</h6>
+                    <h6 className="mb-0">대체 가능한 부품 (Alternative Parts)</h6>
                     <div className="d-flex gap-2">
                       <Button size="sm" variant="secondary"
                         onClick={() => { setShowSearchModal(true); setSearchTerm(""); setModalPicked(new Set()); }}
@@ -453,7 +452,7 @@ export default function AliasManager() {
               )}
 
               {!selId && !detailLoading && (
-                <div className="text-muted">좌측에서 Alias를 선택하거나 새로 추가하세요.</div>
+                <div className="text-muted">좌측에서 대표부품을 선택하거나 새로 추가하세요.</div>
               )}
             </Card.Body>
           </Card>
@@ -471,7 +470,7 @@ export default function AliasManager() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                handleCreatePartAndLink(); // 단일 업서트
+                handleCreatePartAndLink();
               }
             }}
           />
@@ -500,6 +499,8 @@ export default function AliasManager() {
                   </tr>
                 ))}
                 {filteredModalParts.length === 0 && (
+
+
                   <tr><td colSpan={3} className="text-center text-muted">결과 없음</td></tr>
                 )}
               </tbody>

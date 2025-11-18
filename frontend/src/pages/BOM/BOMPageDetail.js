@@ -5,6 +5,8 @@ import { FiEdit, FiTrash2, FiSave, FiX } from 'react-icons/fi';
 import { FaSearch, FaBox } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
 import ReusableTooltip from '../../components/ReusableTooltip';
+import Zoom from 'react-medium-image-zoom';
+import 'react-medium-image-zoom/dist/styles.css';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
 
@@ -283,29 +285,23 @@ const BOMPageDetail = () => {
     setEditedRowData({});
   };
 
-  // ===== Alias API helpers =====
-  // 현재 행의 part_name이 alias인지 확인
   const isAliasName = async (name) => {
     const a = await getAliasByName((name || '').toUpperCase());
     return a ? a : null;
   };
 
-  // alias 토글 ON: alias 생성 + 현재 part 링크
   const handleAliasToggleOn = async (rowPart) => {
     try {
       // 이미 있으면 재사용, 없으면 생성
-      const upName = (rowPart.part_name || '').toUpperCase();
-      let alias = await getAliasByName(upName);
+      const Name = (rowPart.part_name || '');
+      let alias = await getAliasByName(Name);
       if (!alias) {
-        alias = await createAlias(upName); // {id, alias_name}
+        alias = await createAlias(Name);
       }
-      // 이 부품(part_id)와 연결(중복 에러는 무시)
-      try { await addAliasLink(alias.id, rowPart.part_id); } catch { }
-
-      alert('별칭 등록 완료');
+      alert('대표부품으로 지정되었습니다. \n 대체부품을 연결할 수 있습니다.');
     } catch (e) {
       console.error(e);
-      alert('별칭 등록에 실패했습니다.');
+      alert('대표부품으로 연결하는데 실패했습니다.');
     }
   };
 
@@ -416,6 +412,10 @@ const BOMPageDetail = () => {
   if (!assembly) {
     return <div className="text-center mt-5">PCB를 찾을 수 없습니다.</div>;
   }
+
+  const imageUrl = assembly?.image_filename
+    ? `${SERVER_URL}/static/images/assemblies/${assembly.image_filename}`
+    : '/default-part-icon.png';
 
   const totalNeeded = parts.reduce((sum, p) => sum + assembly.quantity_to_build * p.quantity_per, 0);
   const totalAllocated = parts.reduce((sum, p) => sum + (p.allocated_quantity || 0), 0);
@@ -638,7 +638,7 @@ const BOMPageDetail = () => {
           checked={isOn}
           onChange={onToggleChange}
           id={`alias-switch-${rowPart.part_id}`}
-          label={isOn ? 'ON' : 'OFF'}
+        // label={isOn ? 'ON' : 'OFF'}
         />
         {isOn && (
           <Button
@@ -740,42 +740,58 @@ const BOMPageDetail = () => {
           <Row className='d-flex align-items-center'>
             <Col xs={12} md={2}>
               <div
-                className="position-relative image-upload-container"
-                style={{ cursor: "pointer", width: "100%" }}
-                onClick={handleUploadClick}
-                onMouseEnter={() => document.getElementById('upload-overlay').style.opacity = 1}
-                onMouseLeave={() => document.getElementById('upload-overlay').style.opacity = 0}
+                className="position-relative image-container"
+                style={{
+                  width: "100%",
+                  maxWidth: "220px",
+                  margin: "0 auto",
+                }}
+                onMouseEnter={() => {
+                  const overlay = document.getElementById('upload-overlay');
+                  if (overlay) overlay.style.opacity = '1';
+                }}
+                onMouseLeave={() => {
+                  const overlay = document.getElementById('upload-overlay');
+                  if (overlay) overlay.style.opacity = '0';
+                }}
               >
-                <img
-                  src={
-                    assembly.image_filename
-                      ? `${SERVER_URL}/static/images/assemblies/${assembly.image_filename}`
-                      : '/default-part-icon.png'
-                  }
-                  alt="Assembly"
-                  className="img-fluid"
-                  style={{
-                    width: "100%",
-                    maxWidth: "220px",
-                    maxHeight: "170px",
-                    objectFit: "contain",
-                  }}
-                />
+                <Zoom>
+                  <img
+                    src={imageUrl}
+                    alt="Assembly"
+                    className="img-fluid rounded"
+                    style={{
+                      width: "100%",
+                      maxHeight: "170px",
+                      objectFit: "contain",
+                      border: "1px solid #eee",
+                    }}
+                  />
+                </Zoom>
+
                 <div
                   id="upload-overlay"
-                  className="position-absolute top-50 start-50 translate-middle d-flex flex-column align-items-center justify-content-center"
+                  className="position-absolute bottom-0 end-0 p-2"
                   style={{
                     opacity: 0,
                     transition: "opacity 0.3s",
-                    backgroundColor: "rgba(255,255,255,0.6)",
-                    width: "100%",
-                    height: "100%",
+                    width: "auto",
+                    height: "auto",
                     borderRadius: "8px",
-                    zIndex: 2,
+                    zIndex: 3,
+                    pointerEvents: "none",
                   }}
                 >
-                  <div style={{ fontSize: "0.85rem", color: "#666" }}>이미지 업로드</div>
+                  {/* 이미지 변경 버튼 */}
+                  <button
+                    className="btn btn-sm btn-dark shadow-sm"
+                    onClick={handleUploadClick}
+                    style={{ pointerEvents: "auto", fontWeight: "bold" }}
+                  >
+                    이미지 변경
+                  </button>
                 </div>
+
                 <input
                   type="file"
                   accept="image/*"
@@ -944,7 +960,7 @@ const BOMPageDetail = () => {
                 <th>할당량</th>
                 <th>할당</th>
                 <th>작업</th>
-                <th>alias</th>
+                <th>대표부품 지정</th>
               </tr>
             </thead>
             <tbody className="text-center">

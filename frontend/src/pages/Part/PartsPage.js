@@ -213,13 +213,13 @@ const ListView = ({
   const [showAdjModal, setShowAdjModal] = useState(false);
   const [adjMode, setAdjMode] = useState('in'); // 'in' | 'out'
   const [adjPart, setAdjPart] = useState(null);
-  const [adjValue, setAdjValue] = useState(1);
+  const [adjValue, setAdjValue] = useState("");
 
   // 모달 열기
   const openAdjustModal = (part, mode) => {
     setAdjMode(mode);
     setAdjPart(part);
-    setAdjValue(1);
+    setAdjValue("");
     setShowAdjModal(true);
   };
 
@@ -227,8 +227,9 @@ const ListView = ({
   const handleConfirmAdjust = async () => {
     if (!adjPart) return;
     const baseQty = Number(adjPart.quantity ?? 0);
-    const delta = adjMode === 'in' ? Number(adjValue) : -Number(adjValue);
-    if (!Number.isFinite(delta) || delta === 0) {
+    const deltaRaw = adjMode === 'in' ? adjValue : `-${adjValue}`;
+    const delta = Number(deltaRaw);
+    if (!adjValue.trim() || isNaN(delta) || delta === 0) {
       alert("조정 수량을 올바르게 입력하세요.");
       return;
     }
@@ -238,9 +239,16 @@ const ListView = ({
       return;
     }
 
+    const confirmMsg =
+      `${adjPart.part_name ?? "부품"}의 수량을 ${baseQty} → ${nextQty}로 ` +
+      (adjMode === "in" ? "입고" : "출고") + "하시겠습니까?";
+    if (!window.confirm(confirmMsg)) return;
+
     try {
-      // 서버에 즉시 반영 (PUT /api/parts/:id)
-      const payload = { quantity: nextQty }; // 필요한 경우 memo 같은 필드도 함께 보낼 수 있음
+      const payload = {
+        part_name: adjPart.part_name,
+        quantity: nextQty
+      };
       const res = await fetch(`${SERVER_URL}/api/parts/${adjPart.id}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -533,16 +541,22 @@ const ListView = ({
           </Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Form>
+          <Form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleConfirmAdjust();
+            }}
+          >
             <Form.Group className="mb-3">
               <Form.Label>조정 수량</Form.Label>
               <Form.Control
                 type="number"
                 min={1}
                 step={1}
-                value={adjValue}
-                onChange={(e) => setAdjValue(Number(e.target.value))}
-                placeholder="숫자 입력"
+                value={adjValue === "" ? undefined : adjValue}
+                onChange={(e) => setAdjValue(e.target.value)}
+                placeholder="수량 입력"
+                autoFocus 
               />
               <Form.Text muted>
                 현재 재고: {adjPart ? (adjPart.quantity ?? 0) : '-'} →

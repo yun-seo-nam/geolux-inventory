@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Row, Col, Table, Button, Form, InputGroup, Modal } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
-import { FiTrash2 } from 'react-icons/fi';
+import { FiTrash2, FiEdit } from 'react-icons/fi';
 import CustomButton from '../components/CustomButton';
 
 const ProjectPage = () => {
@@ -13,6 +13,14 @@ const ProjectPage = () => {
 
   const [showModal, setShowModal] = useState(false);
   const [newProject, setNewProject] = useState({
+    project_name: '',
+    description: '',
+  });
+
+  // 🔥 Edit Modal
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editProject, setEditProject] = useState({
+    id: null,
     project_name: '',
     description: '',
   });
@@ -51,7 +59,6 @@ const ProjectPage = () => {
       });
   };
 
-  // status 관련 필터 제거 → 텍스트 필터만
   const filteredProjects = projects
     .filter((proj) =>
       (proj.project_name?.toLowerCase().includes(filter.toLowerCase()) ||
@@ -63,7 +70,6 @@ const ProjectPage = () => {
     fetch(`${API_BASE}/api/projects`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      // status 제거
       body: JSON.stringify({
         project_name: newProject.project_name,
         description: newProject.description,
@@ -71,9 +77,7 @@ const ProjectPage = () => {
     })
       .then(async res => {
         const result = await res.json();
-        if (!res.ok) {
-          throw new Error(result.error || '프로젝트 생성 실패');
-        }
+        if (!res.ok) throw new Error(result.error || '프로젝트 생성 실패');
         return result;
       })
       .then(() => {
@@ -83,6 +87,41 @@ const ProjectPage = () => {
       })
       .catch(err => {
         console.error('프로젝트 생성 중 에러:', err);
+        alert(err.message);
+      });
+  };
+
+  // 🔥 편집 버튼 눌렀을 때
+  const openEditModal = (proj) => {
+    setEditProject({
+      id: proj.id,
+      project_name: proj.project_name,
+      description: proj.description,
+    });
+    setShowEditModal(true);
+  };
+
+  // 🔥 프로젝트 업데이트
+  const handleUpdateProject = () => {
+    fetch(`${API_BASE}/api/projects/${editProject.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        project_name: editProject.project_name,
+        description: editProject.description,
+      }),
+    })
+      .then(async res => {
+        const result = await res.json();
+        if (!res.ok) throw new Error(result.error || '수정 실패');
+        return result;
+      })
+      .then(() => {
+        setShowEditModal(false);
+        fetchProjects();
+      })
+      .catch(err => {
+        console.error("수정 에러:", err);
         alert(err.message);
       });
   };
@@ -130,7 +169,17 @@ const ProjectPage = () => {
                 <td>{proj.description || '-'}</td>
                 <td>{proj.create_date?.split(' ')[0]}</td>
                 <td>
-                  <Button variant="outline-danger" size="sm" onClick={() => handleDelete(proj.id)}><FiTrash2 /></Button>
+                  <Button
+                    variant="outline-secondary"
+                    size="sm"
+                    className="me-2"
+                    onClick={() => openEditModal(proj)}
+                  >
+                    <FiEdit />
+                  </Button>
+                  <Button variant="outline-danger" size="sm" onClick={() => handleDelete(proj.id)}>
+                    <FiTrash2 />
+                  </Button>
                 </td>
               </tr>
             ))
@@ -138,6 +187,7 @@ const ProjectPage = () => {
         </tbody>
       </Table>
 
+      {/* 새 프로젝트 모달 */}
       <Modal show={showModal} onHide={() => setShowModal(false)}>
         <Modal.Header closeButton>
           <Modal.Title>새 프로젝트 등록</Modal.Title>
@@ -164,13 +214,47 @@ const ProjectPage = () => {
                 onChange={(e) => setNewProject({ ...newProject, description: e.target.value })}
               />
             </Form.Group>
-            {/* 엔터로도 등록 가능 */}
             <button type="submit" style={{ display: 'none' }} />
           </Form>
         </Modal.Body>
         <Modal.Footer>
           <Button variant="secondary" onClick={() => setShowModal(false)}>취소</Button>
           <Button variant="primary" onClick={handleCreateProject}>등록</Button>
+        </Modal.Footer>
+      </Modal>
+      
+      <Modal show={showEditModal} onHide={() => setShowEditModal(false)}>
+        <Modal.Header closeButton>
+          <Modal.Title>프로젝트 수정</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          <Form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleUpdateProject();
+            }}
+          >
+            <Form.Group className="mb-2">
+              <Form.Label>프로젝트명</Form.Label>
+              <Form.Control
+                value={editProject.project_name}
+                onChange={(e) => setEditProject({ ...editProject, project_name: e.target.value })}
+                autoFocus
+              />
+            </Form.Group>
+            <Form.Group className="mb-2">
+              <Form.Label>설명</Form.Label>
+              <Form.Control
+                value={editProject.description}
+                onChange={(e) => setEditProject({ ...editProject, description: e.target.value })}
+              />
+            </Form.Group>
+            <button type="submit" style={{ display: 'none' }} />
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={() => setShowEditModal(false)}>취소</Button>
+          <Button variant="primary" onClick={handleUpdateProject}>저장</Button>
         </Modal.Footer>
       </Modal>
     </div>

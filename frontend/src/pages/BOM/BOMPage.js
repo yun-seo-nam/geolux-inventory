@@ -289,6 +289,8 @@ const BOMPage = () => {
               </Button>
             </Col>
           )}
+
+          <Button onClick={handleOpenModal}>< MdOutlineAdd /></Button>
           <Button
             variant={deleteMode ? "danger" : "danger"}
             onClick={() => {
@@ -300,7 +302,6 @@ const BOMPage = () => {
           >
             {deleteMode ? <MdOutlineCancel /> : <FiTrash2 />}
           </Button>
-          <Button onClick={handleOpenModal}>< MdOutlineAdd /></Button>
         </Col>
       </Row>
 

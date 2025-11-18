@@ -47,7 +47,7 @@ const Layout = () => {
       { to: '/buildList', icon: <MdOutlineBuild />, label: 'PCB', active: location.pathname.startsWith('/build') },
       { to: '/project', icon: <RxDashboard />, label: 'Dashboard', active: location.pathname === '/project' },
       { to: '/overView', icon: <RiTableView />, label: 'Overview', active: location.pathname === '/overView' },
-      { to: '/aliasName', icon: <FaTable />, label: 'Alias', active: location.pathname === '/aliasName' },
+      { to: '/aliasName', icon: <FaTable />, label: 'Rep. / Alt. Parts', active: location.pathname === '/aliasName' },
     ],
     [location.pathname]
   );

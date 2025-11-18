@@ -173,6 +173,7 @@ const ProjectPageDetail = () => {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          project_name: projDraft.project_name,
           description: projDraft.description,
         }),
       });
@@ -195,7 +196,20 @@ const ProjectPageDetail = () => {
         <div className="mb-4">
           <div className="d-flex justify-content-between align-items-center mb-3">
             <div className="d-flex align-items-center gap-3">
-              <h2 className="mb-0">{project.project_name}</h2>
+              {isEditingProject ? (
+                <Form.Control
+                  as="textarea"
+                  rows={1}
+                  value={projDraft.project_name}
+                  onChange={(e) =>
+                    setProjDraft((d) => ({ ...d, project_name: e.target.value }))
+                  }
+                  disabled={savingProj}
+                />
+              ) : (
+                <h2 className="mb-0">{projDraft.project_name}</h2>
+              )}
+
             </div>
             <div className="d-flex gap-2">
               {isEditingProject ? (
@@ -235,7 +249,7 @@ const ProjectPageDetail = () => {
                   </div>
 
                   <div>
-                    <strong className="me-2">시작일 :</strong>
+                    <strong className="me-2">생성일 :</strong>
                     <span>{project.create_date?.split(' ')[0] || '-'}</span>
                   </div>
                 </Col>
