@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, ListGroup, Button, Spinner, Form, Row, Col, Badge, Table, ButtonGroup, Modal } from 'react-bootstrap';
-import { FiEdit, FiTrash2, FiSave, FiX, FiUpload } from 'react-icons/fi';
+import { Card, Button, Spinner, Form, Row, Col, Badge, Table, ButtonGroup, Modal } from 'react-bootstrap';
+import { FiEdit, FiTrash2, FiSave, FiX } from 'react-icons/fi';
+import Zoom from 'react-medium-image-zoom';
+import 'react-medium-image-zoom/dist/styles.css';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
 
@@ -297,32 +299,63 @@ const PartDetailPage = () => {
       <Card className="shadow-sm mb-4">
         <Card.Body>
           <Row>
-            <Col md={3} className="d-flex justify-content-center align-items-center">
-              <div className="image-upload-container">
-                <img
-                  src={
-                    part.image_filename
-                      ? `${SERVER_URL}/static/images/parts/${part.image_filename}`
-                      : '/default-part-icon.png'
-                  }
-                  alt="부품 이미지"
-                  className="img-fluid"
-                  style={{
-                    width: "200px",
-                    minHeight: "160px",
-                    objectFit: "contain",
-                    backgroundColor: "#f8f9fa",
-                    borderRadius: "8px",
-                    position: "relative",
-                    zIndex: 1,
-                  }}
-                />
+            <Col md={3}>
+              <div
+                className="position-relative image-container"
+                style={{
+                  width: "100%",
+                  maxWidth: "220px",
+                  margin: "0 auto",
+                }}
+                onMouseEnter={() => {
+                  const overlay = document.getElementById('upload-overlay');
+                  if (overlay) overlay.style.opacity = '1';
+                }}
+                onMouseLeave={() => {
+                  const overlay = document.getElementById('upload-overlay');
+                  if (overlay) overlay.style.opacity = '0';
+                }}
+              >
+                <Zoom>
+                  <img
+                    src={
+                      part.image_filename
+                        ? `${SERVER_URL}/static/images/parts/${part.image_filename}`
+                        : '/default-part-icon.png'
+                    }
+                    alt="part"
+                    className="img-fluid rounded"
+                    style={{
+                      width: "100%",
+                      maxHeight: "170px",
+                      objectFit: "contain",
+                      border: "1px solid #eee",
+                    }}
+                  />
+                </Zoom>
 
-                {isEditing && (
-                  <div className="image-upload-overlay" onClick={handleUploadClick}>
-                    <Button>이미지 수정</Button>
-                  </div>
-                )}
+                <div
+                  id="upload-overlay"
+                  className="position-absolute bottom-0 end-0 p-2"
+                  style={{
+                    opacity: 0,
+                    transition: "opacity 0.3s",
+                    width: "auto",
+                    height: "auto",
+                    borderRadius: "8px",
+                    zIndex: 3,
+                    pointerEvents: "none",
+                  }}
+                >
+                  {/* 이미지 변경 버튼 */}
+                  <button
+                    className="btn btn-sm btn-dark shadow-sm"
+                    onClick={handleUploadClick}
+                    style={{ pointerEvents: "auto", fontWeight: "bold" }}
+                  >
+                    이미지 변경
+                  </button>
+                </div>
 
                 <input
                   type="file"
