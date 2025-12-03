@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Card, Table, Row, Col, Button, Spinner, Form, InputGroup, Badge, Modal } from "react-bootstrap";
-import { FiEdit, FiTrash2, FiSave, FiX, FiRefreshCw } from "react-icons/fi";
+import { FiEdit, FiTrash2, FiSave, FiX } from "react-icons/fi";
 import { FaSearch } from "react-icons/fa";
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
@@ -27,13 +27,13 @@ const api = {
     req(`/api/aliases`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias_name: (alias_name || "").trim().toUpperCase() })
+      body: JSON.stringify({ alias_name: (alias_name || "").trim() })
     }),
   updateAlias: (aliasId, alias_name) =>
     req(`/api/aliases/${aliasId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ alias_name: (alias_name || "").trim().toUpperCase() })
+      body: JSON.stringify({ alias_name: (alias_name || "").trim() })
     }),
   deleteAlias: (aliasId) => req(`/api/aliases/${aliasId}`, { method: "DELETE" }),
   addLink: (aliasId, part_id) =>
@@ -70,6 +70,8 @@ export default function AliasManager() {
   const [list, setList] = useState([]);
   const [listLoading, setListLoading] = useState(true);
   const [listErr, setListErr] = useState("");
+
+  const [hoveredRow, setHoveredRow] = useState(null);
 
   // 선택 alias
   const [selId, setSelId] = useState(null);
@@ -160,7 +162,6 @@ export default function AliasManager() {
     return () => { alive = false; };
   }, [showSearchModal]);
 
-  // 초기 parts 캐시
   useEffect(() => {
     if ((allParts || []).length > 0) return;
     let alive = true;
@@ -172,7 +173,7 @@ export default function AliasManager() {
       } catch { }
     })();
     return () => { alive = false; };
-  }, []);
+  }, [allParts]);
 
   // 새 alias 생성
   const handleCreateAlias = async () => {
@@ -198,13 +199,21 @@ export default function AliasManager() {
     } catch (e) { alert(e?.message || "수정 실패"); }
   };
 
-  // alias 삭제
-  const handleDeleteAlias = async () => {
-    if (!selId) return;
-    if (!window.confirm("이 대표부품과 모든 링크를 삭제할까요?")) return;
+  const handleDeleteAlias = async (targetId, targetName, e) => {
+    if (e) e.stopPropagation();
+
+    if (!window.confirm(`'${targetName}'을(를) 삭제하시겠습니까?\n연결된 모든 링크도 함께 삭제됩니다.`)) return;
+
     try {
-      await api.deleteAlias(selId);
-      setSelId(null); setSelName(""); setLinks([]); setPicks(new Set());
+      await api.deleteAlias(targetId);
+
+      if (selId === targetId) {
+        setSelId(null);
+        setSelName("");
+        setLinks([]);
+        setPicks(new Set());
+      }
+
       await refreshList();
     } catch (e) { alert(e?.message || "삭제 실패"); }
   };
@@ -299,7 +308,7 @@ export default function AliasManager() {
         <Col md={4}>
           <Card className="shadow-sm mb-3">
             <Card.Header className="d-flex align-items-center gap-4">
-              <strong>대표부품</strong>
+              <strong className="fs-7 text-nowrap">대표부품</strong>|
               <Form.Control
                 size="sm"
                 placeholder="검색(대소문자 무시)"
@@ -320,8 +329,28 @@ export default function AliasManager() {
                   {(list || []).map(a => (
                     <tr key={a.id}
                       onClick={() => loadDetail(a.id, a.alias_name)}
+                      onMouseEnter={() => setHoveredRow(a.id)} // 마우스 올림
+                      onMouseLeave={() => setHoveredRow(null)} // 마우스 떠남
                       style={{ cursor: 'pointer', background: selId === a.id ? '#eef6ff' : '' }}>
-                      <td className="px-5">{a.alias_name}</td>
+
+                      <td className="px-3">
+                        <div className="d-flex justify-content-between align-items-center">
+                          {/* 텍스트 */}
+                          <span>{a.alias_name}</span>
+
+                          {/* Hover 시에만 보이는 삭제 버튼 */}
+                          {hoveredRow === a.id && (
+                            <Button
+                              size="sm"
+                              variant="outline-danger"
+                              style={{ padding: '0px 6px', fontSize: '0.7rem' }}
+                              onClick={(e) => handleDeleteAlias(a.id, a.alias_name, e)}
+                            >
+                              <FiTrash2 />
+                            </Button>
+                          )}
+                        </div>
+                      </td>
                     </tr>
                   ))}
                   {!listLoading && (!list || list.length === 0) && (
@@ -336,7 +365,7 @@ export default function AliasManager() {
                   <Form.Control
                     placeholder="새 대표부품 (New Representative Parts)"
                     value={newAlias}
-                    onChange={(e) => { setNewAlias((e.target.value || "").toUpperCase()); setAliasDropdownOpen(true); }}
+                    onChange={(e) => { setNewAlias((e.target.value || "")); setAliasDropdownOpen(true); }}
                     onFocus={() => setAliasDropdownOpen(true)}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') handleCreateAlias();
@@ -384,7 +413,7 @@ export default function AliasManager() {
                       size="sm"
                       style={{ width: 280 }}
                       value={editVal}
-                      onChange={(e) => setEditVal((e.target.value || "").toUpperCase())}
+                      onChange={(e) => setEditVal((e.target.value || ""))}
                       onKeyDown={(e) => { if (e.key === 'Enter') handleRename(); }}
                     />
                     <Button size="sm" variant="success" onClick={handleRename}><FiSave /></Button>
@@ -397,7 +426,6 @@ export default function AliasManager() {
                   </>
                 )}
               </div>
-              <Button size="sm" variant="outline-danger" onClick={handleDeleteAlias} disabled={!selId}><FiTrash2 /> 삭제</Button>
             </Card.Header>
 
             <Card.Body>

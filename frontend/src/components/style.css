@@ -494,3 +494,27 @@ body {
 [data-bs-theme="dark"] .layout-sidebar::-webkit-scrollbar-thumb {
   background: #425169;
 }
+
+.truncate-text {
+  white-space: nowrap; 
+  overflow: hidden; 
+  text-overflow: ellipsis; 
+  display: block; 
+  max-width: 250px; 
+}
+
+@keyframes flash-green {
+    from { background-color: #d1e7dd; }
+    to { background-color: transparent; }
+  }
+  /* 3초간 반짝이는 효과 */
+  .highlight-row td {
+    animation: flash-green 3s ease-out;
+  }
+  /* [NEW] 계속 남아있는 은은한 표시 (왼쪽 초록색 줄 + 연한 배경) */
+  .modified-row {
+    background-color: #f8fff9 !important; /* 아주 연한 민트색 */
+  }
+  .modified-row td:first-child {
+    border-left: 4px solid #198754; /* 왼쪽 진한 초록 줄 */
+  }

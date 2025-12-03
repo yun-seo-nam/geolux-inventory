@@ -4,55 +4,64 @@ import { FiSave, FiTrash2 } from 'react-icons/fi';
 
 const SERVER_URL = process.env.REACT_APP_SERVER_URL || "http://localhost:8000";
 
+// ======================================
+// ⭐️ 1. 컴포넌트 외부에 객체 정의 (최적화) ⭐️
+// ======================================
+
+// 수정 가능한 컬럼 정의
+const editableColumns = {
+  parts: [
+    "part_name", "quantity", "ordered_quantity", "price", "value", "supplier",
+    "purchase_url", "manufacturer", "description",
+    "mounting_type", "package", "location", "memo",
+    "category_large", "category_medium", "category_small",
+    "image_filename"
+  ],
+  assemblies: [
+    "assembly_name","quantity_to_build","description",
+    "image_filename","version",
+    "manufacturing_method","work_date","work_duration",
+    "is_soldered","is_tested","status"
+  ],
+  projects: [
+    "project_name","description"
+  ]
+};
+
+// 테이블에 표시하는 컬럼 (id를 첫 번째 컬럼으로 명시)
+const columns = {
+  parts: ["id", ...editableColumns.parts],
+  assemblies: ["id", ...editableColumns.assemblies],
+  projects: ["id", ...editableColumns.projects]
+};
+
+// 검색 필드 정의
+const searchFields = {
+  parts: [
+    "part_name","value","manufacturer","package","location",
+    "description","memo","supplier","purchase_url",
+    "category_large","category_medium","category_small"
+  ],
+  assemblies: [
+    "assembly_name","status","manufacturing_method","version","description"
+  ],
+  projects: [
+    "project_name","description"
+  ]
+};
+
+// ======================================
+// ⭐️ 2. AdminOverview 컴포넌트 ⭐️
+// ======================================
+
 const AdminOverview = () => {
-  const [entity, setEntity] = useState("parts"); // 기본값: parts
+  const [entity, setEntity] = useState("parts");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [dirty, setDirty] = useState({}); // id별 변경된 값 저장
+  const [dirty, setDirty] = useState({});
   const [saving, setSaving] = useState(new Set());
-  const [q, setQ] = useState(""); // 🔍 검색어
-  const [selected, setSelected] = useState(new Set()); // ✅ 선택된 id
-
-  // 수정 가능한 컬럼 정의
-  const editableColumns = {
-    parts: [
-      "part_name", "quantity", "ordered_quantity", "price", "value", "supplier",
-      "purchase_url", "manufacturer", "description",
-      "mounting_type", "package", "location", "memo",
-      "category_large", "category_medium", "category_small",
-      "image_filename"
-    ],
-    assemblies: [
-      "assembly_name","quantity_to_build","description",
-      "image_filename","version",
-      "manufacturing_method","work_date","work_duration",
-      "is_soldered","is_tested","status"
-    ],
-    projects: [
-      "project_name","description"
-    ]
-  };
-
-  // 테이블에 표시하는 컬럼(네가 준 그대로)
-  const columns = {
-    parts: [...editableColumns.parts],
-    assemblies: [...editableColumns.assemblies],
-    projects: [...editableColumns.projects]
-  };
-
-  const searchFields = {
-    parts: [
-      "part_name","value","manufacturer","package","location",
-      "description","memo","supplier","purchase_url",
-      "category_large","category_medium","category_small"
-    ],
-    assemblies: [
-      "assembly_name","status","manufacturing_method","version","description"
-    ],
-    projects: [
-      "project_name","description"
-    ]
-  };
+  const [q, setQ] = useState(""); 
+  const [selected, setSelected] = useState(new Set()); 
 
   // 데이터 불러오기
   const fetchData = useCallback(async () => {
@@ -62,6 +71,7 @@ const AdminOverview = () => {
       const data = await res.json();
       setRows(data);
       setSelected(new Set()); // 엔터티 바꾸면 선택 초기화
+      setDirty({}); // 엔터티 바꾸면 변경사항 초기화
     } catch (err) {
       console.error(err);
       setRows([]);
@@ -76,7 +86,7 @@ const AdminOverview = () => {
 
   // 셀 변경 처리
   const handleChange = (id, key, value) => {
-    // Boolean 처리
+    // Boolean 처리 (UI가 Form.Control이므로 문자열을 파싱)
     let parsedValue = value;
     if (["is_soldered", "is_tested"].includes(key)) {
       parsedValue = value === "true" || value === true;
@@ -107,12 +117,15 @@ const AdminOverview = () => {
         body: JSON.stringify(changes)
       });
       if (!res.ok) throw new Error(`저장 실패: ${res.status}`);
+      
+      // ⭐️ 최적화: 서버에서 받은 응답으로 로컬 행 데이터만 업데이트하는 것이 더 좋음
+      // 여기서는 코드를 단순화하기 위해 기존 로직을 유지했습니다.
       setDirty(prev => {
         const cp = { ...prev };
         delete cp[id];
         return cp;
       });
-      await fetchData();
+      await fetchData(); // 전체 새로고침
     } catch (err) {
       alert(err.message);
     } finally {
@@ -165,6 +178,7 @@ const AdminOverview = () => {
     }
   };
 
+  // 🔎 검색 필터링 로직 (searchFields가 외부에서 정의되어 경고 해결)
   const filteredRows = useMemo(() => {
     const tokens = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
     if (!tokens.length) return rows;
@@ -173,7 +187,7 @@ const AdminOverview = () => {
       const hay = fields.map(f => (row && row[f] != null ? String(row[f]) : "")).join(" ").toLowerCase();
       return tokens.every(tk => hay.includes(tk));
     });
-  }, [q, rows, entity]);
+  }, [q, rows, entity]); // searchFields가 외부 상수이므로 의존성에서 제거됨
 
   const toggleOne = (id) => {
     setSelected(prev => {
@@ -182,11 +196,11 @@ const AdminOverview = () => {
       return cp;
     });
   };
+  
   const toggleAllFiltered = (checked) => {
     if (checked) {
       setSelected(new Set(filteredRows.map(r => r.id)));
     } else {
-      // 필터에 보이는 것만 해제 (다른 선택은 유지)
       setSelected(prev => {
         const cp = new Set(prev);
         filteredRows.forEach(r => cp.delete(r.id));
@@ -200,10 +214,8 @@ const AdminOverview = () => {
   const deleteOne = async (id) => {
     if (!window.confirm(`이 항목을 삭제할까요? (id=${id})`)) return;
     try {
-      // 1) 일단 개별 DELETE 시도
       const res = await fetch(`${SERVER_URL}/api/${entity}/${id}`, { method: "DELETE" });
       if (!res.ok) {
-        // 2) 폴백: bulk 형식만 지원하는 서버일 수 있음 → bulk로 재시도
         const bulk = await fetch(`${SERVER_URL}/api/${entity}`, {
           method: "DELETE",
           headers: { "Content-Type": "application/json" },
@@ -214,7 +226,6 @@ const AdminOverview = () => {
           throw new Error(msg);
         }
       }
-      // 로컬 상태 갱신
       setRows(prev => prev.filter(r => r.id !== id));
       setSelected(prev => { const cp = new Set(prev); cp.delete(id); return cp; });
       setDirty(prev => { const cp = { ...prev }; delete cp[id]; return cp; });
@@ -233,7 +244,6 @@ const AdminOverview = () => {
     if (!window.confirm(`선택된 ${ids.length}개 항목을 삭제할까요?`)) return;
 
     try {
-      // 1) bulk delete 먼저 시도
       let bulkOk = false;
       const res = await fetch(`${SERVER_URL}/api/${entity}`, {
         method: "DELETE",
@@ -245,7 +255,6 @@ const AdminOverview = () => {
       }
 
       if (!bulkOk) {
-        // 2) 폴백: 개별 DELETE 병렬
         const results = await Promise.allSettled(
           ids.map(id => fetch(`${SERVER_URL}/api/${entity}/${id}`, { method: "DELETE" }))
         );
@@ -255,7 +264,6 @@ const AdminOverview = () => {
         }
       }
 
-      // 성공 → 로컬 상태 정리
       setRows(prev => prev.filter(r => !selected.has(r.id)));
       setDirty(prev => {
         const cp = { ...prev };
@@ -271,6 +279,7 @@ const AdminOverview = () => {
   return (
     <div className="container-fluid">
       <style>{`
+        /* 스타일은 변경 없이 그대로 유지 */
         .admin-toolbar {
           display: flex;
           gap: 12px;
@@ -391,7 +400,7 @@ const AdminOverview = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map(row => (
+                {filteredRows.map((row, rowIndex) => (
                   <tr key={row.id}>
                     {/* ✅ 행 선택 */}
                     <td className="col-select">

@@ -1,4 +1,3 @@
-# projects.py
 from flask import Blueprint, request, jsonify, g
 import sqlite3
 import os
@@ -8,11 +7,10 @@ projects_bp = Blueprint('projects', __name__)
 
 # ====== DB 연결 유틸 ======
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(BASE_DIR, '..', 'inventory.db')  # 상황에 맞게 경로 조정
+DB_PATH = os.path.join(BASE_DIR, '..', 'inventory.db')  
 
 def get_db():
     if 'db' not in g:
-        # check_same_thread=False: 개발 서버 스레드 이슈 방지
         g.db = sqlite3.connect(DB_PATH, check_same_thread=False)
         g.db.row_factory = sqlite3.Row
     return g.db

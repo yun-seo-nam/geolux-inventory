@@ -147,7 +147,6 @@ def pick(colset, names):
 
 @assemblies_bp.route("/api/assemblies/upload_csv", methods=["POST", "OPTIONS"])
 def upload_assembly_csv():
-    # 프리플라이트
     if request.method == "OPTIONS":
         return ("", 204)
 
@@ -193,7 +192,6 @@ def upload_assembly_csv():
     # 기본 검증
     if not col_quantity:
         return jsonify({"error": "필수 열 누락: quantity/Qty"}), 400
-    # part_name/device/value 없어도 reference로 대체 가능(행 단위로 스킵될 수 있음)
 
     assembly_name = request.form.get('assembly_name') or os.path.splitext(secure_filename(file.filename))[0]
 
@@ -383,10 +381,21 @@ def get_assembly_detail(assembly_id):
 
         parts = db.execute("""
             SELECT 
-                ap.reference, ap.quantity_per, ap.allocated_quantity, p.part_name, p.quantity, p.id as part_id
+                ap.reference, 
+                ap.quantity_per, 
+                ap.allocated_quantity, 
+                p.part_name, 
+                p.quantity, 
+                p.package, 
+                p.id as part_id,
+                al.alias_id,   
+                a.alias_name      
             FROM assembly_parts ap
             JOIN parts p ON ap.part_id = p.id
+            LEFT JOIN alias_links al ON p.id = al.part_id  
+            LEFT JOIN aliases a ON al.alias_id = a.id     
             WHERE ap.assembly_id = ?
+            ORDER BY p.part_name
         """, (assembly_id,)).fetchall()
 
         return jsonify({
@@ -397,7 +406,7 @@ def get_assembly_detail(assembly_id):
     except Exception as e:
         current_app.logger.error(f"Error fetching assembly detail: {e}")
         return jsonify({'error': str(e)}), 500
-
+    
 @assemblies_bp.route('/api/assemblies/<int:assembly_id>/edit', methods=['PUT'])
 def edit_assembly_basic_info(assembly_id):
     data = request.get_json()
@@ -742,5 +751,124 @@ def swap_bom_part(asm_id, old_pid):
             db.rollback()
         except Exception:
             pass
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+    
+@assemblies_bp.route("/api/assemblies/<int:assembly_id>/bom/swap-quantity", methods=["POST"])
+def swap_bom_quantity(assembly_id):
+    """
+    [Logic Fixed]
+    1. Target(B) 부품: 그냥 수량만 늘려줌 (자동 할당 X)
+    2. Source(A) 부품: 수량이 줄어들었을 때, '필요량보다 더 많이 할당된 경우'에만 차액을 반납
+    """
+    data = request.get_json(silent=True) or {}
+    src_part_id = data.get("source_part_id")
+    tgt_part_id = data.get("target_part_id")
+    swap_qty = int(data.get("swap_quantity", 0))
+
+    if not src_part_id or not tgt_part_id or swap_qty <= 0:
+        return jsonify({"error": "잘못된 요청 데이터입니다."}), 400
+
+    db = get_db()
+    cursor = db.cursor()
+
+    try:
+        # 0. 총 몇 대를 만드는지 확인 (필요량 계산을 위해)
+        assembly = cursor.execute(
+            "SELECT quantity_to_build FROM assemblies WHERE id=?", 
+            (assembly_id,)
+        ).fetchone()
+        if not assembly:
+            return jsonify({"error": "어셈블리 정보 없음"}), 404
+        
+        build_qty = assembly["quantity_to_build"] # 예: 4대
+
+        # 1. Source(A) 정보 조회
+        src_row = cursor.execute("""
+            SELECT quantity_per, allocated_quantity 
+            FROM assembly_parts 
+            WHERE assembly_id=? AND part_id=?
+        """, (assembly_id, src_part_id)).fetchone()
+
+        if not src_row:
+            return jsonify({"error": "기존 부품이 BOM에 없습니다."}), 404
+
+        current_src_qty_per = src_row["quantity_per"]     # 예: 3개
+        src_allocated = src_row["allocated_quantity"] or 0 # 예: 12개
+
+        if swap_qty > current_src_qty_per:
+            return jsonify({"error": "교체 수량이 현재 수량보다 많습니다."}), 400
+
+        # ==========================================================
+        # [STEP 1] Target(B) 처리 - 단순히 수량만 추가 (할당 X)
+        # ==========================================================
+        tgt_row = cursor.execute("""
+            SELECT quantity_per 
+            FROM assembly_parts 
+            WHERE assembly_id=? AND part_id=?
+        """, (assembly_id, tgt_part_id)).fetchone()
+
+        if tgt_row:
+            cursor.execute("""
+                UPDATE assembly_parts 
+                SET quantity_per = quantity_per + ? 
+                WHERE assembly_id=? AND part_id=?
+            """, (swap_qty, assembly_id, tgt_part_id))
+        else:
+            # 새로 추가되는 경우 할당량은 0으로 시작
+            cursor.execute("""
+                INSERT INTO assembly_parts (assembly_id, part_id, quantity_per, reference, allocated_quantity)
+                VALUES (?, ?, ?, '', 0)
+            """, (assembly_id, tgt_part_id, swap_qty))
+
+        # ==========================================================
+        # [STEP 2] Source(A) 처리 - 줄어든 만큼 과잉 할당 반납
+        # ==========================================================
+        new_src_qty_per = current_src_qty_per - swap_qty # 예: 3 - 1 = 2개
+        
+        if new_src_qty_per > 0:
+            # 부분 교체 상황 (예: 3개 -> 2개)
+            
+            # 이제 실제로 필요한 총 수량 계산
+            # 예: 2개 * 4대 = 8개 필요
+            new_needed_total = new_src_qty_per * build_qty
+            
+            # 현재 할당된 게 필요량보다 많은가? (예: 12개 > 8개)
+            if src_allocated > new_needed_total:
+                # 과잉분 계산: 12 - 8 = 4개
+                return_to_stock = src_allocated - new_needed_total
+                
+                # 1) 재고로 반납
+                cursor.execute("UPDATE parts SET quantity = quantity + ? WHERE id = ?", (return_to_stock, src_part_id))
+                
+                # 2) BOM 할당량 줄임 (딱 필요한 만큼만 남김)
+                cursor.execute("""
+                    UPDATE assembly_parts 
+                    SET quantity_per = ?, allocated_quantity = ?
+                    WHERE assembly_id=? AND part_id=?
+                """, (new_src_qty_per, new_needed_total, assembly_id, src_part_id))
+            else:
+                # 할당된 게 필요량보다 적거나 같으면, 그냥 BOM 수량만 줄임 (재고 반납 X)
+                cursor.execute("""
+                    UPDATE assembly_parts 
+                    SET quantity_per = ?
+                    WHERE assembly_id=? AND part_id=?
+                """, (new_src_qty_per, assembly_id, src_part_id))
+
+        else:
+            # 전체 교체 상황 (A가 아예 사라짐)
+            # 할당되어 있던 모든 수량을 재고로 반납
+            if src_allocated > 0:
+                cursor.execute("UPDATE parts SET quantity = quantity + ? WHERE id = ?", (src_allocated, src_part_id))
+            
+            # BOM 행 삭제
+            cursor.execute("DELETE FROM assembly_parts WHERE assembly_id=? AND part_id=?", (assembly_id, src_part_id))
+
+        db.commit()
+        return jsonify({"message": "교체 완료 (과잉 할당분 반납됨)"})
+
+    except Exception as e:
+        db.rollback()
+        import traceback
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500

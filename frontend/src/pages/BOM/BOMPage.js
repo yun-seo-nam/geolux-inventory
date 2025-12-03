@@ -381,6 +381,7 @@ const BOMPage = () => {
               {deleteMode && <th style={{ width: '60px' }}>선택</th>}
               <th className="text-center" style={{ width: '80px' }}>이미지</th>
               <th className="text-center">이름</th>
+              <th className="text-center" style={{ width: '450px' }}>설명</th>
               <th className="text-center" style={{ width: '80px' }}>수량</th>
               <th className="text-center" style={{ width: '120px' }}>상태</th>
               <th className="text-center" style={{ width: '110px' }}>수정일</th>
@@ -452,6 +453,15 @@ const BOMPage = () => {
                     }}
                   >
                     {asm.assembly_name}
+                  </td>
+
+                  <td style={{ fontVariantNumeric: 'tabular-nums', maxWidth: '250px' }}>
+                    <div
+                      className="truncate-text"
+                      title={asm.description || ""} // 마우스 오버 시 전체 설명 표시
+                    >
+                      {asm.description ?? 0}
+                    </div>
                   </td>
 
                   {/* 수량 */}

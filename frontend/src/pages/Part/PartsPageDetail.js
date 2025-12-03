@@ -211,6 +211,11 @@ const PartDetailPage = () => {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
+      if (e.key === 'F2') {
+        e.preventDefault();
+        setIsEditing(true);
+      }
+      
       if (e.key === "Enter" && isEditing) {
         handleSave();
       }

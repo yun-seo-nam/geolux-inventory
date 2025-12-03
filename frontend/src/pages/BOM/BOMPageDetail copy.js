@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Card, Table, Row, Col, Button, Spinner, ProgressBar, Form, Modal } from 'react-bootstrap';
+import { Card, Table, Row, Col, Button, Spinner, ProgressBar, Form, Modal, Badge } from 'react-bootstrap';
 import { FiEdit, FiTrash2, FiSave, FiX } from 'react-icons/fi';
 import { FaSearch, FaBox } from "react-icons/fa";
 import { FaDeleteLeft } from "react-icons/fa6";
@@ -54,11 +54,17 @@ const BOMPageDetail = () => {
   const [swapTargetName, setSwapTargetName] = useState("");
   const [swapQuantity, setSwapQuantity] = useState(0);
 
-  const filteredParts = parts.filter(p =>
-    p.part_name.toLowerCase().includes(partSearch.toLowerCase())
-  );
-
   const [highlightIds, setHighlightIds] = useState(new Set());
+  const [modifiedIds, setModifiedIds] = useState(new Set());
+  const [showModifiedOnly, setShowModifiedOnly] = useState(false);
+  const filteredParts = parts.filter(p => {
+    const matchesSearch = p.part_name.toLowerCase().includes(partSearch.toLowerCase());
+
+    if (showModifiedOnly) {
+      return matchesSearch && modifiedIds.has(p.part_id);
+    }
+    return matchesSearch;
+  });
 
   const triggerHighlight = useCallback((ids) => {
     setHighlightIds(prev => {
@@ -73,6 +79,12 @@ const BOMPageDetail = () => {
         return next;
       });
     }, 3000);
+
+    setModifiedIds(prev => {
+      const next = new Set(prev);
+      targetIds.forEach(id => next.add(id));
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -395,6 +407,11 @@ const BOMPageDetail = () => {
           alert("호환 부품으로 등록되었습니다.");
           setShowMergeSearchModal(false);
           refreshData();
+          setModifiedIds(prev => {
+            const next = new Set(prev);
+            targetIds.forEach(id => next.add(id));
+            return next;
+          });
         })
         .catch(err => {
           console.error(err);
@@ -972,6 +989,16 @@ const BOMPageDetail = () => {
             />
           </div>
 
+          <Button
+            variant={showModifiedOnly ? "success" : "outline-secondary"}
+            onClick={() => setShowModifiedOnly(!showModifiedOnly)}
+            className="d-flex align-items-center gap-2"
+          >
+            {showModifiedOnly ? <FaBox /> : <FaSearch />}
+            {showModifiedOnly ? "전체 보기" : "변경된 항목만 보기"}
+            {modifiedIds.size > 0 && <Badge bg="danger" pill>{modifiedIds.size}</Badge>}
+          </Button>
+
           <div className="mb-3 d-flex flex-row-reverse gap-3 w-50">
             <Button
               variant="secondary"
@@ -1024,17 +1051,28 @@ const BOMPageDetail = () => {
             <tbody className="text-center">
               {filteredParts.map((p) => {
                 const requiredQty = assembly.quantity_to_build * p.quantity_per;
-                // 재고 부족 여부 계산 (현재 보유 재고 + 이미 할당된 양 < 필요량)
+
+                // 재고 부족 여부 계산
                 const currentQty = (p.quantity || 0) + (p.allocated_quantity || 0);
                 const isStockShort = currentQty < requiredQty;
 
                 const allocated = p.allocated_quantity || 0;
 
+                // [NEW] 스타일 클래스 결정 로직
+                // 1. 반짝임(highlight)이 있으면 최우선 적용
+                // 2. 반짝임이 끝나면 수정됨(modified) 표시 적용
                 const isHighlighted = highlightIds.has(p.part_id);
-                const rowClass = isHighlighted ? "highlight-row" : "";
+                const isModified = modifiedIds.has(p.part_id);
+
+                let rowClass = "";
+                if (isHighlighted) {
+                  rowClass = "highlight-row";
+                } else if (isModified) {
+                  rowClass = "modified-row";
+                }
 
                 if (editingRowId === p.part_id) {
-                  // === [수정 모드] ===
+                  // ================== [수정 모드] ==================
                   return (
                     <tr key={p.part_id} className={rowClass}>
                       <td>
@@ -1089,7 +1127,7 @@ const BOMPageDetail = () => {
                     </tr>
                   );
                 } else {
-                  // === [일반 모드] ===
+                  // ================== [일반 모드] ==================
                   return (
                     <tr key={p.part_id} className={rowClass}>
                       <td>

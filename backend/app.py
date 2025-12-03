@@ -58,7 +58,7 @@ def init_db_once():
 # ─────────────────────────────────────────────────────────────
 @app.before_request
 def restrict_to_company_wifi():
-    if request.method == "OPTIONS":  # CORS preflight는 통과
+    if request.method == "OPTIONS": 
         return None
 
     allowed_networks = [
@@ -111,7 +111,8 @@ def serve_assembly_image(filename):
 # 블루프린트 등록 (프로젝트 구조에 맞게 유지)
 # ─────────────────────────────────────────────────────────────
 from routes.projects import projects_bp
-from routes.parts import parts_bp, order_bp, aliases_bp
+from routes.parts import parts_bp, order_bp
+from routes.aliases import aliases_bp
 from routes.assemblies import assemblies_bp
 
 app.register_blueprint(projects_bp)

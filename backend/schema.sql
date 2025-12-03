@@ -45,8 +45,7 @@ CREATE TABLE assemblies (
   work_date DATE,
   work_duration INTEGER,
   is_soldered BOOLEAN,
-  is_tested BOOLEAN,
-  description TEXT
+  is_tested BOOLEAN
 );
 
 CREATE TABLE assembly_parts (
